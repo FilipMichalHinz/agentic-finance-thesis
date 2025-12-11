@@ -1,0 +1,4 @@
+- consider Alpaca markets for stocks data
+- check if there is a better news scraper than yfinance like a one that actually scrapes the news's text body not only titles etc
+- since the langchain for group projects is paid, shall we request resources from CBS or just create one generic account?
+
