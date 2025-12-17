@@ -1,8 +1,11 @@
 import sys
 import os
 import time
+from uuid import uuid4
 from dotenv import load_dotenv
 from termcolor import colored
+from src.integrations.supabase_logger import SupabaseLogger
+from src.integrations.alpaca_client import AlpacaPaperBroker
 
 # --- 1. SETUP ENVIRONMENT ---
 # Load environment variables (API Keys) from .env file
@@ -17,6 +20,23 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # --- 2. IMPORTS ---
 # We import these AFTER setting up the path
 from src.graph import app
+
+# --- 2b. OPTIONAL INTEGRATIONS ---
+RUN_ID = os.getenv("RUN_ID") or str(uuid4())
+supabase_logger = SupabaseLogger()
+alpaca_broker = AlpacaPaperBroker()
+
+# Helper to send each agent update to Supabase without coupling to the graph
+def log_update_to_supabase(run_id, update):
+    if not supabase_logger.enabled:
+        return
+    for agent_name, state_data in update.items():
+        supabase_logger.log_event(
+            run_id=run_id,
+            agent=agent_name,
+            stage="completed",
+            payload=state_data,
+        )
 
 # --- 3. HELPER FUNCTIONS ---
 def print_update(update):
@@ -63,8 +83,15 @@ if __name__ == "__main__":
         # app.stream executes the nodes one by one
         for update in app.stream(initial_state):
             print_update(update)
+            log_update_to_supabase(RUN_ID, update)
             # Add a tiny sleep so the logs don't fly by too fast
             time.sleep(1)
+
+        # Optional: show Alpaca account summary to confirm connectivity
+        if alpaca_broker.enabled:
+            account = alpaca_broker.get_account_summary()
+            if account:
+                print(colored(f"\nAlpaca Paper Account: {account}", "magenta"))
             
     except Exception as e:
         print(colored(f"Crash detected: {e}", "red"))
