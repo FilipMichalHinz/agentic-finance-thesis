@@ -5,10 +5,11 @@ import os
 import time
 from dotenv import load_dotenv
 
-# --- 1. SETUP ---
-print("🔌 Loading environment variables...")
+#load env variables
+print(" Loading environment variables...")
 load_dotenv() 
 
+# set up supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -22,12 +23,12 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 START_DATE = "2025-09-01"
 END_DATE = "2026-01-01"
 
-# Mag 7 + Others (Your list)
+# We can just include all of NASDaq later
 TICKERS = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
 
-# --- 2. INGESTION FUNCTION ---
+# ingestion
 def process_ticker(ticker):
-    print(f"📉 Downloading {ticker} (Hourly)...")
+    print(f" Downloading {ticker} data...")
     
     try:
         # FIX: Use Ticker().history() instead of download()
@@ -42,8 +43,7 @@ def process_ticker(ticker):
         # Reset index to make the Timestamp a column we can access
         df = df.reset_index()
 
-        # RENAME index column to 'Datetime' if it came back as 'Date' or something else
-        # yfinance history() sometimes names the index 'Date' even for hourly data
+        
         if 'Date' in df.columns:
             df = df.rename(columns={'Date': 'Datetime'})
             
@@ -96,7 +96,7 @@ def process_ticker(ticker):
     except Exception as e:
         print(f"   ❌ Processing Error: {e}")
 
-# --- 3. RUN ---
+# Run
 if __name__ == "__main__":
     print("🚀 Starting Ingestion Job...")
     
