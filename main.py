@@ -74,6 +74,7 @@ if __name__ == "__main__":
     # Initialize the "Project Folder" with a ticker
     initial_state = {
         "ticker": "TSLA",  # Change this to AAPL, NVDA, etc.
+        "as_of": os.getenv("SIM_TIME") or "2024-08-01T00:00:00Z",
         "revision_count": 0,
         "messages": []
     }

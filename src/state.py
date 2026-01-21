@@ -13,6 +13,7 @@ class AgentState(TypedDict):
     
     # 1. The Input
     ticker: str
+    as_of: Optional[str]
     
     # 2. Data Layer (The 3 Analysts)
     # Stream A: Sentiment (News)

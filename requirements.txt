@@ -1,0 +1,15 @@
+beautifulsoup4
+google-genai
+httpx
+langchain-text-splitters
+python-dotenv
+supabase
+sentence-transformers
+torch
+langchain-core
+langchain-google-genai
+langgraph
+numpy
+pandas
+termcolor
+yfinance

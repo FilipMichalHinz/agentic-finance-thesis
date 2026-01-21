@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 env/
 venv/
+venv312/
 
 # Environment files
 .env
@@ -19,3 +20,11 @@ setup_env.py
 
 # Logs
 *.log
+
+# Local data/cache
+sec_data_cache/
+sec_bulk_index/
+sec_bulk_filings/
+
+# Supabase CLI cache
+supabase/.temp/
