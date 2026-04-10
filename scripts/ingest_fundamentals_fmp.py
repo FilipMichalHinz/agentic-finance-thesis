@@ -23,13 +23,85 @@ except ModuleNotFoundError:
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-DEFAULT_PERIODS = ["quarter", "annual"]
+DEFAULT_PERIODS = ["annual"]
+
+NUMERIC_FIELD_MAPPINGS = {
+    "gross_margin": ["grossProfitMargin", "grossMargin"],
+    "ebit_margin": ["ebitMargin"],
+    "ebitda_margin": ["ebitdaMargin"],
+    "operating_margin": ["operatingProfitMargin", "operatingMargin"],
+    "pretax_margin": ["pretaxProfitMargin"],
+    "continuous_operations_profit_margin": ["continuousOperationsProfitMargin"],
+    "net_margin": ["netProfitMargin", "netMargin"],
+    "bottom_line_profit_margin": ["bottomLineProfitMargin"],
+    "receivables_turnover": ["receivablesTurnover"],
+    "payables_turnover": ["payablesTurnover"],
+    "inventory_turnover": ["inventoryTurnover"],
+    "fixed_asset_turnover": ["fixedAssetTurnover"],
+    "asset_turnover": ["assetTurnover"],
+    "current_ratio": ["currentRatio"],
+    "quick_ratio": ["quickRatio"],
+    "solvency_ratio": ["solvencyRatio"],
+    "cash_ratio": ["cashRatio"],
+    "price_to_earnings": ["priceToEarningsRatio", "priceEarningsRatio"],
+    "price_to_earnings_growth_ratio": ["priceToEarningsGrowthRatio", "priceEarningsToGrowthRatio", "pegRatio"],
+    "forward_price_to_earnings_growth_ratio": ["forwardPriceToEarningsGrowthRatio"],
+    "price_earnings_to_growth": ["priceToEarningsGrowthRatio", "priceEarningsToGrowthRatio", "pegRatio"],
+    "price_to_book": ["priceToBookRatio", "priceBookValueRatio"],
+    "price_to_sales": ["priceToSalesRatio"],
+    "price_to_free_cash_flow": ["priceToFreeCashFlowRatio", "priceToFreeCashFlowsRatio"],
+    "price_to_operating_cash_flow": ["priceToOperatingCashFlowRatio", "priceCashFlowRatio"],
+    "price_to_cash_flow": ["priceToOperatingCashFlowRatio", "priceCashFlowRatio"],
+    "debt_to_assets_ratio": ["debtToAssetsRatio", "debtRatio"],
+    "debt_ratio": ["debtToAssetsRatio", "debtRatio"],
+    "debt_to_equity": ["debtToEquityRatio", "debtEquityRatio", "debtToEquity"],
+    "debt_to_capital_ratio": ["debtToCapitalRatio"],
+    "long_term_debt_to_capital_ratio": ["longTermDebtToCapitalRatio"],
+    "financial_leverage_ratio": ["financialLeverageRatio"],
+    "working_capital_turnover_ratio": ["workingCapitalTurnoverRatio"],
+    "operating_cash_flow_ratio": ["operatingCashFlowRatio"],
+    "operating_cash_flow_sales_ratio": ["operatingCashFlowSalesRatio"],
+    "free_cash_flow_operating_cash_flow_ratio": ["freeCashFlowOperatingCashFlowRatio"],
+    "debt_service_coverage_ratio": ["debtServiceCoverageRatio"],
+    "interest_coverage_ratio": ["interestCoverageRatio", "interestCoverage"],
+    "interest_coverage": ["interestCoverageRatio", "interestCoverage"],
+    "short_term_operating_cash_flow_coverage_ratio": ["shortTermOperatingCashFlowCoverageRatio"],
+    "operating_cash_flow_coverage_ratio": ["operatingCashFlowCoverageRatio"],
+    "capital_expenditure_coverage_ratio": ["capitalExpenditureCoverageRatio"],
+    "dividend_paid_and_capex_coverage_ratio": ["dividendPaidAndCapexCoverageRatio"],
+    "dividend_payout_ratio": ["dividendPayoutRatio"],
+    "dividend_yield": ["dividendYield"],
+    "dividend_yield_percentage": ["dividendYieldPercentage"],
+    "revenue_per_share": ["revenuePerShare"],
+    "net_income_per_share": ["netIncomePerShare"],
+    "interest_debt_per_share": ["interestDebtPerShare"],
+    "cash_per_share": ["cashPerShare"],
+    "book_value_per_share": ["bookValuePerShare"],
+    "tangible_book_value_per_share": ["tangibleBookValuePerShare"],
+    "shareholders_equity_per_share": ["shareholdersEquityPerShare"],
+    "operating_cash_flow_per_share": ["operatingCashFlowPerShare"],
+    "capex_per_share": ["capexPerShare"],
+    "free_cash_flow_per_share": ["freeCashFlowPerShare"],
+    "net_income_per_ebt": ["netIncomePerEBT"],
+    "ebt_per_ebit": ["ebtPerEbit"],
+    "price_to_fair_value": ["priceToFairValue"],
+    "debt_to_market_cap": ["debtToMarketCap"],
+    "effective_tax_rate": ["effectiveTaxRate"],
+    "return_on_assets": ["returnOnAssets"],
+    "return_on_equity": ["returnOnEquity"],
+    "return_on_capital_employed": ["returnOnCapitalEmployed"],
+    "enterprise_value_multiple": ["enterpriseValueMultiple"],
+}
+
+
+class FmpAccessError(RuntimeError):
+    pass
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Ingest FMP ratios into fundamental_ratios")
     parser.add_argument("--tickers", default=",".join(DOW_30_TICKERS))
-    parser.add_argument("--periods", default=",".join(DEFAULT_PERIODS), help="Comma-separated: quarter,annual")
+    parser.add_argument("--periods", default=",".join(DEFAULT_PERIODS), help="Comma-separated: annual,quarter")
     parser.add_argument("--limit", type=int, default=12, help="Historical periods per ticker")
     parser.add_argument("--sleep-seconds", type=float, default=0.2)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
@@ -41,7 +113,7 @@ def parse_args():
 
 
 def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retries=5, retry_backoff_seconds=2.0):
-    req = Request(url, headers={"apikey": api_key})
+    req = Request(url, headers={"User-Agent": "agentic-finance-thesis/1.0"})
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -51,6 +123,21 @@ def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retrie
             return payload
         except HTTPError as e:
             last_error = e
+            response_body = ""
+            try:
+                response_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                response_body = ""
+            if e.code == 402:
+                raise FmpAccessError(
+                    "FMP returned 402 Payment Required for the ratios endpoint. "
+                    "The request is reaching FMP, but this period/endpoint combination likely is not included in your current plan. "
+                    "If you are on FMP Starter, try --periods annual."
+                ) from e
+            if e.code == 403:
+                raise FmpAccessError(
+                    "FMP returned 403 for the ratios endpoint. Check that your API key is valid and is being sent correctly."
+                ) from e
             if e.code not in RETRYABLE_STATUS_CODES or attempt == max_retries:
                 break
             wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
@@ -72,11 +159,12 @@ def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retrie
     raise RuntimeError(f"Failed to fetch {url}: {last_error}") from last_error
 
 
-def build_url(endpoint, symbol, period, limit):
+def build_url(endpoint, symbol, period, limit, api_key):
     query = urlencode({
         "symbol": symbol,
         "period": period,
         "limit": limit,
+        "apikey": api_key,
     })
     return f"{FMP_BASE}/{endpoint}?{query}"
 
@@ -139,6 +227,15 @@ def sanitize_json(value):
     return str(value)
 
 
+def first_numeric(sample, keys):
+    for key in keys:
+        if key in sample:
+            number = parse_numeric(sample.get(key))
+            if number is not None:
+                return number
+    return None
+
+
 def canonical_period_label(raw_period):
     raw_period = (raw_period or "").upper()
     if raw_period == "FY":
@@ -169,7 +266,7 @@ def build_source_period_key(period_type, period_end_date, filing_date, fiscal_ye
 
 
 def fetch_ratios_rows(ticker, period, api_key, args):
-    url = build_url("ratios", ticker, period, args.limit)
+    url = build_url("ratios", ticker, period, args.limit, api_key)
     payload = fetch_json(
         url,
         api_key=api_key,
@@ -220,53 +317,15 @@ def build_row(ticker, sample):
         "period_end_date": period_end.isoformat(),
         "filing_date": filing_date.isoformat() if filing_date else None,
         "available_at": available_at,
+        "reported_currency": sample.get("reportedCurrency"),
         "fiscal_year": fiscal_year,
         "fiscal_quarter": fiscal_quarter,
         "calendar_year": calendar_year,
         "calendar_quarter": calendar_quarter,
-        "current_ratio": parse_numeric(sample.get("currentRatio")),
-        "quick_ratio": parse_numeric(sample.get("quickRatio")),
-        "cash_ratio": parse_numeric(sample.get("cashRatio")),
-        "gross_margin": parse_numeric(
-            sample.get("grossProfitMargin") or sample.get("grossMargin")
-        ),
-        "operating_margin": parse_numeric(
-            sample.get("operatingProfitMargin") or sample.get("operatingMargin")
-        ),
-        "pretax_margin": parse_numeric(sample.get("pretaxProfitMargin")),
-        "net_margin": parse_numeric(
-            sample.get("netProfitMargin") or sample.get("netMargin")
-        ),
-        "effective_tax_rate": parse_numeric(sample.get("effectiveTaxRate")),
-        "return_on_assets": parse_numeric(sample.get("returnOnAssets")),
-        "return_on_equity": parse_numeric(sample.get("returnOnEquity")),
-        "return_on_capital_employed": parse_numeric(sample.get("returnOnCapitalEmployed")),
-        "debt_ratio": parse_numeric(sample.get("debtRatio")),
-        "debt_to_equity": parse_numeric(
-            sample.get("debtEquityRatio") or sample.get("debtToEquity")
-        ),
-        "interest_coverage": parse_numeric(sample.get("interestCoverage")),
-        "asset_turnover": parse_numeric(sample.get("assetTurnover")),
-        "inventory_turnover": parse_numeric(sample.get("inventoryTurnover")),
-        "receivables_turnover": parse_numeric(sample.get("receivablesTurnover")),
-        "price_to_earnings": parse_numeric(
-            sample.get("priceEarningsRatio") or sample.get("priceToEarningsRatio")
-        ),
-        "price_to_book": parse_numeric(
-            sample.get("priceToBookRatio") or sample.get("priceBookValueRatio")
-        ),
-        "price_to_sales": parse_numeric(sample.get("priceToSalesRatio")),
-        "price_to_cash_flow": parse_numeric(sample.get("priceCashFlowRatio")),
-        "price_to_free_cash_flow": parse_numeric(
-            sample.get("priceToFreeCashFlowsRatio") or sample.get("priceToFreeCashFlowRatio")
-        ),
-        "price_earnings_to_growth": parse_numeric(
-            sample.get("priceEarningsToGrowthRatio") or sample.get("pegRatio")
-        ),
-        "enterprise_value_multiple": parse_numeric(sample.get("enterpriseValueMultiple")),
-        "dividend_yield": parse_numeric(sample.get("dividendYield")),
         "raw_payload": sanitize_json(sample),
     }
+    for column, keys in NUMERIC_FIELD_MAPPINGS.items():
+        row[column] = first_numeric(sample, keys)
     return row
 
 
@@ -280,8 +339,8 @@ def flush_batch(supabase: Client, rows):
 
 
 def main():
-    args = parse_args()
     load_dotenv()
+    args = parse_args()
 
     if not args.api_key:
         raise SystemExit("Set FMP_API_KEY or FINANCIAL_MODELING_PREP_API_KEY, or pass --api-key")
@@ -314,6 +373,8 @@ def main():
                     row = build_row(ticker, sample)
                     if row is not None:
                         bundle_rows.append(row)
+        except FmpAccessError as e:
+            raise SystemExit(str(e)) from e
         except Exception as e:
             print(f"   ❌ Failed to process {ticker}: {e}")
             continue
