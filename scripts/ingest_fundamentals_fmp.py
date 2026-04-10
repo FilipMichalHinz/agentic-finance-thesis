@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import random
+import socket
+import sys
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+from dotenv import load_dotenv
+from supabase import Client, create_client
+
+try:
+    from src.ticker_universes import DOW_30_TICKERS
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.ticker_universes import DOW_30_TICKERS
+
+FMP_BASE = "https://financialmodelingprep.com/stable"
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+DEFAULT_PERIODS = ["quarter", "annual"]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Ingest FMP ratios into fundamental_ratios")
+    parser.add_argument("--tickers", default=",".join(DOW_30_TICKERS))
+    parser.add_argument("--periods", default=",".join(DEFAULT_PERIODS), help="Comma-separated: quarter,annual")
+    parser.add_argument("--limit", type=int, default=12, help="Historical periods per ticker")
+    parser.add_argument("--sleep-seconds", type=float, default=0.2)
+    parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--max-retries", type=int, default=5)
+    parser.add_argument("--retry-backoff-seconds", type=float, default=2.0)
+    parser.add_argument("--db-batch-size", type=int, default=200)
+    parser.add_argument("--api-key", default=os.getenv("FMP_API_KEY") or os.getenv("FINANCIAL_MODELING_PREP_API_KEY"))
+    return parser.parse_args()
+
+
+def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retries=5, retry_backoff_seconds=2.0):
+    req = Request(url, headers={"apikey": api_key})
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urlopen(req, timeout=timeout_seconds) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            time.sleep(sleep_seconds)
+            return payload
+        except HTTPError as e:
+            last_error = e
+            if e.code not in RETRYABLE_STATUS_CODES or attempt == max_retries:
+                break
+            wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
+            print(
+                f"⚠️  HTTP {e.code} fetching {url} "
+                f"(attempt {attempt}/{max_retries}); retrying in {wait_time:.1f}s..."
+            )
+            time.sleep(wait_time)
+        except (URLError, TimeoutError, socket.timeout, json.JSONDecodeError) as e:
+            last_error = e
+            if attempt == max_retries:
+                break
+            wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
+            print(
+                f"⚠️  Network/error fetching {url}: {e} "
+                f"(attempt {attempt}/{max_retries}); retrying in {wait_time:.1f}s..."
+            )
+            time.sleep(wait_time)
+    raise RuntimeError(f"Failed to fetch {url}: {last_error}") from last_error
+
+
+def build_url(endpoint, symbol, period, limit):
+    query = urlencode({
+        "symbol": symbol,
+        "period": period,
+        "limit": limit,
+    })
+    return f"{FMP_BASE}/{endpoint}?{query}"
+
+
+def parse_date(value):
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_datetime(value):
+    if not value:
+        return None
+    candidate = str(value).replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(candidate)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(str(value), fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def parse_numeric(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def sanitize_json(value):
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): sanitize_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_json(v) for v in value]
+    number = parse_numeric(value)
+    if number is not None:
+        return number
+    return str(value)
+
+
+def canonical_period_label(raw_period):
+    raw_period = (raw_period or "").upper()
+    if raw_period == "FY":
+        return "FY", None
+    if raw_period.startswith("Q") and len(raw_period) == 2 and raw_period[1].isdigit():
+        return "Q", int(raw_period[1])
+    if raw_period == "ANNUAL":
+        return "FY", None
+    if raw_period == "QUARTER":
+        return "Q", None
+    return raw_period or "UNKNOWN", None
+
+
+def calendar_quarter_from_date(period_end_date):
+    if period_end_date is None:
+        return None
+    return ((period_end_date.month - 1) // 3) + 1
+
+
+def build_source_period_key(period_type, period_end_date, filing_date, fiscal_year, fiscal_quarter):
+    return "|".join([
+        period_type or "",
+        period_end_date or "",
+        filing_date or "",
+        str(fiscal_year or ""),
+        str(fiscal_quarter or ""),
+    ])
+
+
+def fetch_ratios_rows(ticker, period, api_key, args):
+    url = build_url("ratios", ticker, period, args.limit)
+    payload = fetch_json(
+        url,
+        api_key=api_key,
+        sleep_seconds=args.sleep_seconds,
+        timeout_seconds=args.timeout_seconds,
+        max_retries=args.max_retries,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+    )
+    if isinstance(payload, dict):
+        return [payload]
+    return payload or []
+
+
+def build_row(ticker, sample):
+    if sample is None:
+        return None
+
+    period_end = parse_date(sample.get("date"))
+    if period_end is None:
+        return None
+
+    period_type, fiscal_quarter = canonical_period_label(sample.get("period"))
+    fiscal_year = sample.get("fiscalYear")
+    try:
+        fiscal_year = int(fiscal_year) if fiscal_year not in (None, "") else None
+    except (TypeError, ValueError):
+        fiscal_year = None
+
+    filing_date = parse_date(sample.get("filingDate") or sample.get("fillingDate"))
+    available_at = parse_datetime(sample.get("acceptedDate"))
+    company_name = sample.get("companyName") or sample.get("name")
+    calendar_year = period_end.year
+    calendar_quarter = calendar_quarter_from_date(period_end)
+    source_period_key = build_source_period_key(
+        period_type=period_type,
+        period_end_date=period_end.isoformat(),
+        filing_date=filing_date.isoformat() if filing_date else "",
+        fiscal_year=fiscal_year,
+        fiscal_quarter=fiscal_quarter,
+    )
+
+    row = {
+        "provider": "fmp",
+        "ticker": ticker,
+        "company_name": company_name,
+        "source_period_key": source_period_key,
+        "period_type": period_type,
+        "period_end_date": period_end.isoformat(),
+        "filing_date": filing_date.isoformat() if filing_date else None,
+        "available_at": available_at,
+        "fiscal_year": fiscal_year,
+        "fiscal_quarter": fiscal_quarter,
+        "calendar_year": calendar_year,
+        "calendar_quarter": calendar_quarter,
+        "current_ratio": parse_numeric(sample.get("currentRatio")),
+        "quick_ratio": parse_numeric(sample.get("quickRatio")),
+        "cash_ratio": parse_numeric(sample.get("cashRatio")),
+        "gross_margin": parse_numeric(
+            sample.get("grossProfitMargin") or sample.get("grossMargin")
+        ),
+        "operating_margin": parse_numeric(
+            sample.get("operatingProfitMargin") or sample.get("operatingMargin")
+        ),
+        "pretax_margin": parse_numeric(sample.get("pretaxProfitMargin")),
+        "net_margin": parse_numeric(
+            sample.get("netProfitMargin") or sample.get("netMargin")
+        ),
+        "effective_tax_rate": parse_numeric(sample.get("effectiveTaxRate")),
+        "return_on_assets": parse_numeric(sample.get("returnOnAssets")),
+        "return_on_equity": parse_numeric(sample.get("returnOnEquity")),
+        "return_on_capital_employed": parse_numeric(sample.get("returnOnCapitalEmployed")),
+        "debt_ratio": parse_numeric(sample.get("debtRatio")),
+        "debt_to_equity": parse_numeric(
+            sample.get("debtEquityRatio") or sample.get("debtToEquity")
+        ),
+        "interest_coverage": parse_numeric(sample.get("interestCoverage")),
+        "asset_turnover": parse_numeric(sample.get("assetTurnover")),
+        "inventory_turnover": parse_numeric(sample.get("inventoryTurnover")),
+        "receivables_turnover": parse_numeric(sample.get("receivablesTurnover")),
+        "price_to_earnings": parse_numeric(
+            sample.get("priceEarningsRatio") or sample.get("priceToEarningsRatio")
+        ),
+        "price_to_book": parse_numeric(
+            sample.get("priceToBookRatio") or sample.get("priceBookValueRatio")
+        ),
+        "price_to_sales": parse_numeric(sample.get("priceToSalesRatio")),
+        "price_to_cash_flow": parse_numeric(sample.get("priceCashFlowRatio")),
+        "price_to_free_cash_flow": parse_numeric(
+            sample.get("priceToFreeCashFlowsRatio") or sample.get("priceToFreeCashFlowRatio")
+        ),
+        "price_earnings_to_growth": parse_numeric(
+            sample.get("priceEarningsToGrowthRatio") or sample.get("pegRatio")
+        ),
+        "enterprise_value_multiple": parse_numeric(sample.get("enterpriseValueMultiple")),
+        "dividend_yield": parse_numeric(sample.get("dividendYield")),
+        "raw_payload": sanitize_json(sample),
+    }
+    return row
+
+
+def flush_batch(supabase: Client, rows):
+    if not rows:
+        return
+    supabase.table("fundamental_ratios").upsert(
+        rows,
+        on_conflict="provider,ticker,source_period_key",
+    ).execute()
+
+
+def main():
+    args = parse_args()
+    load_dotenv()
+
+    if not args.api_key:
+        raise SystemExit("Set FMP_API_KEY or FINANCIAL_MODELING_PREP_API_KEY, or pass --api-key")
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not supabase_url or not supabase_key:
+        raise SystemExit("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
+
+    periods = [period.strip().lower() for period in args.periods.split(",") if period.strip()]
+    unsupported = [period for period in periods if period not in {"quarter", "annual"}]
+    if unsupported:
+        raise SystemExit(f"Unsupported --periods values: {', '.join(unsupported)}")
+
+    tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
+    supabase: Client = create_client(supabase_url, supabase_key)
+
+    print("🚀 Starting FMP ratios ingestion...")
+    print(f" Tracking {len(tickers)} tickers across periods {','.join(periods)}...")
+
+    pending_rows = []
+    total_rows = 0
+    for ticker in tickers:
+        print(f" Downloading FMP ratios for {ticker}...")
+        try:
+            bundle_rows = []
+            for period in periods:
+                ratios_rows = fetch_ratios_rows(ticker, period, args.api_key, args)
+                for sample in ratios_rows:
+                    row = build_row(ticker, sample)
+                    if row is not None:
+                        bundle_rows.append(row)
+        except Exception as e:
+            print(f"   ❌ Failed to process {ticker}: {e}")
+            continue
+
+        if not bundle_rows:
+            print(f"   ⚠️ No FMP rows found for {ticker}")
+            continue
+
+        pending_rows.extend(bundle_rows)
+        total_rows += len(bundle_rows)
+        print(f"   ✅ Prepared {len(bundle_rows)} rows for {ticker}")
+
+        if len(pending_rows) >= args.db_batch_size:
+            flush_batch(supabase, pending_rows)
+            print(f"   ↳ Upserted {len(pending_rows)} rows")
+            pending_rows = []
+
+    flush_batch(supabase, pending_rows)
+    if pending_rows:
+        print(f"   ↳ Upserted {len(pending_rows)} rows")
+
+    print(f"🏁 FMP ratios ingestion complete. Prepared {total_rows} rows.")
+
+
+if __name__ == "__main__":
+    main()
