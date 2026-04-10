@@ -132,10 +132,11 @@ The table is created by:
 
 It stores one row per reported period from the FMP `ratios` endpoint:
 
-- identity fields: `provider`, `ticker`, `company_name`, `source_period_key`
-- timing fields: `period_type`, `period_end_date`, `filing_date`, `available_at`
-- period labels: `fiscal_year`, `fiscal_quarter`, `calendar_year`, `calendar_quarter`
-- ratio fields: `current_ratio`, `quick_ratio`, `cash_ratio`, `debt_ratio`, `debt_to_equity`, `interest_coverage`, `gross_margin`, `operating_margin`, `pretax_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `return_on_capital_employed`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`, `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_cash_flow`, `price_to_free_cash_flow`, `price_earnings_to_growth`, `enterprise_value_multiple`, `dividend_yield`
+- identity fields: `provider`, `ticker`, `source_period_key`
+- timing fields: `period_type`, `period_end_date`
+- period labels: `fiscal_year`, `calendar_year`
+- reported metadata: `reported_currency`
+- core ratio fields: `current_ratio`, `quick_ratio`, `gross_margin`, `operating_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `debt_to_assets_ratio`, `debt_to_equity`, `interest_coverage_ratio`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`, `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_free_cash_flow`, `enterprise_value_multiple`, `dividend_yield`
 - `raw_payload` for provider-specific extras
 
 This table is the correct base for periodic FMP ratio ingestion and deeper per-ticker analysis. Daily agent packages should instead be built from:
@@ -151,6 +152,9 @@ Loads periodic financial ratios from FMP into `fundamental_ratios`.
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
 - `FMP_API_KEY` or `FINANCIAL_MODELING_PREP_API_KEY`
 - Apply `supabase/migrations/20260410113000_add_fundamental_ratios.sql`
+- Apply `supabase/migrations/20260410160000_expand_fundamental_ratios_columns.sql`
+- Apply `supabase/migrations/20260410163000_refine_metric_tables.sql`
+- On FMP Starter, use annual ratios. Quarterly ratios require a higher tier.
 
 ### Example
 ```bash
@@ -159,7 +163,8 @@ python scripts/ingest_fundamentals_fmp.py
 
 ### Optional flags
 - `--tickers AAPL,MSFT`
-- `--periods quarter,annual`
+- `--periods annual`
+- `--periods annual,quarter`
 - `--limit 12`
 - `--sleep-seconds 0.2`
 - `--timeout-seconds 30`
@@ -169,11 +174,87 @@ python scripts/ingest_fundamentals_fmp.py
 - `--api-key ...`
 
 ### What It Stores
-- period identity and timing: `period_type`, `period_end_date`, `filing_date`, `available_at`
-- liquidity and leverage: `current_ratio`, `quick_ratio`, `cash_ratio`, `debt_ratio`, `debt_to_equity`, `interest_coverage`
-- profitability and efficiency: `gross_margin`, `operating_margin`, `pretax_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `return_on_capital_employed`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`
-- valuation: `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_cash_flow`, `price_to_free_cash_flow`, `price_earnings_to_growth`, `enterprise_value_multiple`, `dividend_yield`
+- period identity and timing: `period_type`, `period_end_date`
+- reported metadata: `reported_currency`
+- liquidity and leverage: `current_ratio`, `quick_ratio`, `debt_to_assets_ratio`, `debt_to_equity`, `interest_coverage_ratio`
+- profitability and efficiency: `gross_margin`, `operating_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`
+- valuation: `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_free_cash_flow`, `enterprise_value_multiple`, `dividend_yield`
+- stored numeric values are rounded to 2 decimal places
 - `raw_payload` containing the original FMP ratio row
+
+## FMP Technical Indicators Table
+
+For technical-analysis data, use `technical_indicators_daily`.
+The table is created by:
+
+- `supabase/migrations/20260410161000_add_technical_indicators_daily.sql`
+
+It stores one row per:
+
+- `ticker`
+- `timeframe`
+- `period_length`
+- `event_date`
+
+This wide daily shape keeps the row count down and avoids repeating metadata for each indicator value.
+
+## Script: `scripts/ingest_technical_indicators_fmp.py`
+
+Loads FMP technical indicator time series into `technical_indicators_daily`.
+
+### Required
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+- `FMP_API_KEY` or `FINANCIAL_MODELING_PREP_API_KEY`
+- Apply `supabase/migrations/20260410161000_add_technical_indicators_daily.sql`
+
+### Plan Note
+- A live dry run on April 10, 2026 succeeded on your Starter plan for the `1day` timeframe across `sma, ema, wma, dema, tema, rsi, standarddeviation, williams, adx`.
+
+### Supported Indicators
+- `sma`
+- `ema`
+- `wma`
+- `dema`
+- `tema`
+- `rsi`
+- `standarddeviation`
+- `williams`
+- `adx`
+
+### Example
+```bash
+python scripts/ingest_technical_indicators_fmp.py
+```
+
+### Example: small smoke test
+```bash
+python scripts/ingest_technical_indicators_fmp.py \
+  --tickers AAPL \
+  --indicators sma,rsi \
+  --period-lengths 10,14 \
+  --timeframe 1day \
+  --start-date 2025-01-01 \
+  --end-date 2025-01-31
+```
+
+### Optional flags
+- `--tickers AAPL,MSFT`
+- `--indicators sma,ema,rsi`
+- `--period-lengths 10,14,20`
+- `--timeframe 1day`
+- `--start-date 2025-01-01`
+- `--end-date 2026-04-10`
+- `--sleep-seconds 0.2`
+- `--timeout-seconds 30`
+- `--db-batch-size 500`
+- `--dry-run`
+- `--api-key ...`
+
+### What It Stores
+- daily identity: `ticker`, `timeframe`, `period_length`, `event_date`
+- one column per indicator: `sma`, `ema`, `wma`, `dema`, `tema`, `rsi`, `standarddeviation`, `williams`, `adx`
+- stored indicator values are rounded to 2 decimal places
+- `raw_payload` containing the source FMP records merged by indicator for that day
 
 ## Script: `src/news_data_ingestion.py`
 

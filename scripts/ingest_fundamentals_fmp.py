@@ -23,13 +23,39 @@ except ModuleNotFoundError:
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-DEFAULT_PERIODS = ["quarter", "annual"]
+DEFAULT_PERIODS = ["annual"]
+
+NUMERIC_FIELD_MAPPINGS = {
+    "current_ratio": ["currentRatio"],
+    "quick_ratio": ["quickRatio"],
+    "gross_margin": ["grossProfitMargin", "grossMargin"],
+    "operating_margin": ["operatingProfitMargin", "operatingMargin"],
+    "net_margin": ["netProfitMargin", "netMargin"],
+    "return_on_assets": ["returnOnAssets"],
+    "return_on_equity": ["returnOnEquity"],
+    "debt_to_assets_ratio": ["debtToAssetsRatio", "debtRatio"],
+    "debt_to_equity": ["debtToEquityRatio", "debtEquityRatio", "debtToEquity"],
+    "interest_coverage_ratio": ["interestCoverageRatio", "interestCoverage"],
+    "asset_turnover": ["assetTurnover"],
+    "inventory_turnover": ["inventoryTurnover"],
+    "receivables_turnover": ["receivablesTurnover"],
+    "price_to_earnings": ["priceToEarningsRatio", "priceEarningsRatio"],
+    "price_to_book": ["priceToBookRatio", "priceBookValueRatio"],
+    "price_to_sales": ["priceToSalesRatio"],
+    "price_to_free_cash_flow": ["priceToFreeCashFlowRatio", "priceToFreeCashFlowsRatio"],
+    "enterprise_value_multiple": ["enterpriseValueMultiple"],
+    "dividend_yield": ["dividendYield"],
+}
+
+
+class FmpAccessError(RuntimeError):
+    pass
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Ingest FMP ratios into fundamental_ratios")
     parser.add_argument("--tickers", default=",".join(DOW_30_TICKERS))
-    parser.add_argument("--periods", default=",".join(DEFAULT_PERIODS), help="Comma-separated: quarter,annual")
+    parser.add_argument("--periods", default=",".join(DEFAULT_PERIODS), help="Comma-separated: annual,quarter")
     parser.add_argument("--limit", type=int, default=12, help="Historical periods per ticker")
     parser.add_argument("--sleep-seconds", type=float, default=0.2)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
@@ -41,7 +67,7 @@ def parse_args():
 
 
 def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retries=5, retry_backoff_seconds=2.0):
-    req = Request(url, headers={"apikey": api_key})
+    req = Request(url, headers={"User-Agent": "agentic-finance-thesis/1.0"})
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -51,6 +77,21 @@ def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retrie
             return payload
         except HTTPError as e:
             last_error = e
+            response_body = ""
+            try:
+                response_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                response_body = ""
+            if e.code == 402:
+                raise FmpAccessError(
+                    "FMP returned 402 Payment Required for the ratios endpoint. "
+                    "The request is reaching FMP, but this period/endpoint combination likely is not included in your current plan. "
+                    "If you are on FMP Starter, try --periods annual."
+                ) from e
+            if e.code == 403:
+                raise FmpAccessError(
+                    "FMP returned 403 for the ratios endpoint. Check that your API key is valid and is being sent correctly."
+                ) from e
             if e.code not in RETRYABLE_STATUS_CODES or attempt == max_retries:
                 break
             wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
@@ -72,11 +113,12 @@ def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retrie
     raise RuntimeError(f"Failed to fetch {url}: {last_error}") from last_error
 
 
-def build_url(endpoint, symbol, period, limit):
+def build_url(endpoint, symbol, period, limit, api_key):
     query = urlencode({
         "symbol": symbol,
         "period": period,
         "limit": limit,
+        "apikey": api_key,
     })
     return f"{FMP_BASE}/{endpoint}?{query}"
 
@@ -124,6 +166,12 @@ def parse_numeric(value):
     return number
 
 
+def round_metric(value):
+    if value is None:
+        return None
+    return round(value, 2)
+
+
 def sanitize_json(value):
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -137,6 +185,15 @@ def sanitize_json(value):
     if number is not None:
         return number
     return str(value)
+
+
+def first_numeric(sample, keys):
+    for key in keys:
+        if key in sample:
+            number = parse_numeric(sample.get(key))
+            if number is not None:
+                return round_metric(number)
+    return None
 
 
 def canonical_period_label(raw_period):
@@ -169,7 +226,7 @@ def build_source_period_key(period_type, period_end_date, filing_date, fiscal_ye
 
 
 def fetch_ratios_rows(ticker, period, api_key, args):
-    url = build_url("ratios", ticker, period, args.limit)
+    url = build_url("ratios", ticker, period, args.limit, api_key)
     payload = fetch_json(
         url,
         api_key=api_key,
@@ -198,75 +255,28 @@ def build_row(ticker, sample):
     except (TypeError, ValueError):
         fiscal_year = None
 
-    filing_date = parse_date(sample.get("filingDate") or sample.get("fillingDate"))
-    available_at = parse_datetime(sample.get("acceptedDate"))
-    company_name = sample.get("companyName") or sample.get("name")
     calendar_year = period_end.year
-    calendar_quarter = calendar_quarter_from_date(period_end)
     source_period_key = build_source_period_key(
         period_type=period_type,
         period_end_date=period_end.isoformat(),
-        filing_date=filing_date.isoformat() if filing_date else "",
+        filing_date="",
         fiscal_year=fiscal_year,
-        fiscal_quarter=fiscal_quarter,
+        fiscal_quarter=None,
     )
 
     row = {
         "provider": "fmp",
         "ticker": ticker,
-        "company_name": company_name,
         "source_period_key": source_period_key,
         "period_type": period_type,
         "period_end_date": period_end.isoformat(),
-        "filing_date": filing_date.isoformat() if filing_date else None,
-        "available_at": available_at,
+        "reported_currency": sample.get("reportedCurrency"),
         "fiscal_year": fiscal_year,
-        "fiscal_quarter": fiscal_quarter,
         "calendar_year": calendar_year,
-        "calendar_quarter": calendar_quarter,
-        "current_ratio": parse_numeric(sample.get("currentRatio")),
-        "quick_ratio": parse_numeric(sample.get("quickRatio")),
-        "cash_ratio": parse_numeric(sample.get("cashRatio")),
-        "gross_margin": parse_numeric(
-            sample.get("grossProfitMargin") or sample.get("grossMargin")
-        ),
-        "operating_margin": parse_numeric(
-            sample.get("operatingProfitMargin") or sample.get("operatingMargin")
-        ),
-        "pretax_margin": parse_numeric(sample.get("pretaxProfitMargin")),
-        "net_margin": parse_numeric(
-            sample.get("netProfitMargin") or sample.get("netMargin")
-        ),
-        "effective_tax_rate": parse_numeric(sample.get("effectiveTaxRate")),
-        "return_on_assets": parse_numeric(sample.get("returnOnAssets")),
-        "return_on_equity": parse_numeric(sample.get("returnOnEquity")),
-        "return_on_capital_employed": parse_numeric(sample.get("returnOnCapitalEmployed")),
-        "debt_ratio": parse_numeric(sample.get("debtRatio")),
-        "debt_to_equity": parse_numeric(
-            sample.get("debtEquityRatio") or sample.get("debtToEquity")
-        ),
-        "interest_coverage": parse_numeric(sample.get("interestCoverage")),
-        "asset_turnover": parse_numeric(sample.get("assetTurnover")),
-        "inventory_turnover": parse_numeric(sample.get("inventoryTurnover")),
-        "receivables_turnover": parse_numeric(sample.get("receivablesTurnover")),
-        "price_to_earnings": parse_numeric(
-            sample.get("priceEarningsRatio") or sample.get("priceToEarningsRatio")
-        ),
-        "price_to_book": parse_numeric(
-            sample.get("priceToBookRatio") or sample.get("priceBookValueRatio")
-        ),
-        "price_to_sales": parse_numeric(sample.get("priceToSalesRatio")),
-        "price_to_cash_flow": parse_numeric(sample.get("priceCashFlowRatio")),
-        "price_to_free_cash_flow": parse_numeric(
-            sample.get("priceToFreeCashFlowsRatio") or sample.get("priceToFreeCashFlowRatio")
-        ),
-        "price_earnings_to_growth": parse_numeric(
-            sample.get("priceEarningsToGrowthRatio") or sample.get("pegRatio")
-        ),
-        "enterprise_value_multiple": parse_numeric(sample.get("enterpriseValueMultiple")),
-        "dividend_yield": parse_numeric(sample.get("dividendYield")),
         "raw_payload": sanitize_json(sample),
     }
+    for column, keys in NUMERIC_FIELD_MAPPINGS.items():
+        row[column] = first_numeric(sample, keys)
     return row
 
 
@@ -280,8 +290,8 @@ def flush_batch(supabase: Client, rows):
 
 
 def main():
-    args = parse_args()
     load_dotenv()
+    args = parse_args()
 
     if not args.api_key:
         raise SystemExit("Set FMP_API_KEY or FINANCIAL_MODELING_PREP_API_KEY, or pass --api-key")
@@ -314,6 +324,8 @@ def main():
                     row = build_row(ticker, sample)
                     if row is not None:
                         bundle_rows.append(row)
+        except FmpAccessError as e:
+            raise SystemExit(str(e)) from e
         except Exception as e:
             print(f"   ❌ Failed to process {ticker}: {e}")
             continue
