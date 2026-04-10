@@ -13,6 +13,7 @@ from supabase import create_client, Client
 def parse_args():
     parser = argparse.ArgumentParser(description="Embed knowledge_base rows missing embeddings")
     parser.add_argument("--provider", choices=["gemini", "local"], default="gemini")
+    parser.add_argument("--gemini-model", default=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"))
     parser.add_argument("--local-model", default="intfloat/e5-base-v2")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--normalize", action="store_true", default=True)
@@ -46,17 +47,27 @@ def render_progress(processed, total, bar_width=30):
     print(f"\rProgress: [{bar}] {processed}/{total}", end="", flush=True)
 
 
-def get_batch_embeddings_gemini(client, texts, max_retries, sleep_seconds):
+def get_batch_embeddings_gemini(client, model_name, texts, max_retries, sleep_seconds):
     if not texts:
         return []
     for attempt in range(max_retries):
         try:
+            from google.genai import types
             response = client.models.embed_content(
-                model="text-embedding-004",
-                contents=texts
+                model=model_name,
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=768,
+                    task_type="RETRIEVAL_DOCUMENT",
+                ),
             )
             return [e.values for e in response.embeddings]
-        except (httpx.ReadTimeout, httpx.TimeoutException, Exception) as e:
+        except Exception as e:
+            status_code = getattr(e, "status_code", None)
+            if status_code is None:
+                status_code = getattr(e, "code", None)
+            if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+                raise
             wait_time = (attempt + 1) * 2 + random.uniform(0.5, 1.5)
             print(f"⚠️  API Error (Attempt {attempt+1}/{max_retries}): {e} - Retrying in {wait_time:.1f}s...")
             time.sleep(wait_time)
@@ -92,9 +103,9 @@ def main():
         if not google_key:
             raise SystemExit("Set GOOGLE_API_KEY")
         from google import genai  # Local import to avoid hard dependency for local mode
-        client = genai.Client(api_key=google_key, http_options={"timeout": args.timeout_seconds})
+        client = genai.Client(api_key=google_key, http_options={"timeout": int(args.timeout_seconds * 1000)})
         embed_fn = lambda texts: get_batch_embeddings_gemini(  # noqa: E731
-            client, texts, args.max_retries, args.sleep_seconds
+            client, args.gemini_model, texts, args.max_retries, args.sleep_seconds
         )
     elif args.provider == "local":
         from sentence_transformers import SentenceTransformer

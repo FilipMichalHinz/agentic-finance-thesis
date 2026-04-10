@@ -24,11 +24,11 @@ def get_latest_price_before(
     as_of: str,
 ) -> Optional[Dict]:
     """
-    Return the most recent price snapshot at or before the given timestamp.
+    Return the most recent daily price snapshot at or before the given timestamp.
     """
     supabase = _get_supabase_client()
     res = (
-        supabase.table("market_prices_hourly")
+        supabase.table("market_prices_daily")
         .select("event_timestamp, price_open, price_high, price_low, price_close, volume")
         .eq("ticker", ticker)
         .lte("event_timestamp", as_of)

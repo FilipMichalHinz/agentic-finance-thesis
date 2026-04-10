@@ -1,11 +1,41 @@
+import argparse
+import os
+import sys
+import time
+from datetime import date, datetime
+from pathlib import Path
+
 import yfinance as yf
 import pandas as pd
 from supabase import create_client, Client
-import os
-import time
 from dotenv import load_dotenv
 
-#load env variables
+try:
+    from src.ticker_universes import DOW_30_TICKERS
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.ticker_universes import DOW_30_TICKERS
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Ingest daily market prices into Supabase")
+    parser.add_argument("--tickers", default=",".join(DOW_30_TICKERS))
+    parser.add_argument("--start-date", default="2025-01-01")
+    parser.add_argument("--end-date", default="2026-01-01")
+    parser.add_argument("--history-years", type=int, default=1)
+    parser.add_argument("--sleep-seconds", type=float, default=0.5)
+    return parser.parse_args()
+
+
+def shift_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        # Handle leap-day edge cases by falling back to Feb 28.
+        return value.replace(month=2, day=28, year=value.year + years)
+
+
+# load env variables
 print(" Loading environment variables...")
 load_dotenv() 
 
@@ -19,22 +49,13 @@ if not SUPABASE_URL:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# CONFIG
-START_DATE = "2025-09-01"
-END_DATE = "2026-01-01"
 
-# We can just include all of NASDaq later
-TICKERS = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA"]
-
-# ingestion
-def process_ticker(ticker):
+def process_ticker(ticker, start_date, end_date):
     print(f" Downloading {ticker} data...")
     
     try:
-        # FIX: Use Ticker().history() instead of download()
-        # This prevents the "MultiIndex" bug by ensuring we get a simple table
         ticker_obj = yf.Ticker(ticker)
-        df = ticker_obj.history(start=START_DATE, end=END_DATE, interval="1h", auto_adjust=True)
+        df = ticker_obj.history(start=start_date, end=end_date, interval="1d", auto_adjust=True)
         
         if df.empty:
             print(f"   ⚠️ No data found for {ticker}")
@@ -52,15 +73,10 @@ def process_ticker(ticker):
             print(f"   ⚠️ Could not find timestamp column for {ticker}. Columns: {df.columns}")
             return
 
-        # TIMEZONE HANDLING
-        # 1. Convert to NY first (if not already)
-        if df['Datetime'].dt.tz is None:
-            df['Datetime'] = df['Datetime'].dt.tz_localize('America/New_York')
-        else:
-            df['Datetime'] = df['Datetime'].dt.tz_convert('America/New_York')
-        
-        # 2. Convert to UTC for Supabase storage
-        df['Datetime'] = df['Datetime'].dt.tz_convert('UTC')
+        # Treat daily bars as available at the regular market close.
+        df['Datetime'] = pd.to_datetime(df['Datetime']).dt.date
+        df['Datetime'] = pd.to_datetime(df['Datetime']) + pd.Timedelta(hours=16)
+        df['Datetime'] = df['Datetime'].dt.tz_localize('America/New_York').dt.tz_convert('UTC')
 
         rows_to_insert = []
         
@@ -87,7 +103,7 @@ def process_ticker(ticker):
             batch = rows_to_insert[i : i + batch_size]
             try:
                 # Upsert based on the composite index (ticker + timestamp)
-                supabase.table("market_prices_hourly").upsert(batch, on_conflict="ticker, event_timestamp").execute()
+                supabase.table("market_prices_daily").upsert(batch, on_conflict="ticker, event_timestamp").execute()
             except Exception as e:
                 print(f"   ❌ DB Error: {e}")
                 
@@ -98,10 +114,22 @@ def process_ticker(ticker):
 
 # Run
 if __name__ == "__main__":
+    args = parse_args()
+    tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
+    if args.history_years < 0:
+        raise SystemExit("--history-years must be >= 0")
+    target_start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()
+    fetch_start_date = shift_years(target_start_date, -args.history_years)
+    fetch_start = fetch_start_date.isoformat()
+
     print("🚀 Starting Ingestion Job...")
+    print(
+        f" Tracking {len(tickers)} tickers from {fetch_start} to {args.end_date} "
+        f"(target window {args.start_date} to {args.end_date}, lookback {args.history_years} year(s))..."
+    )
     
-    for ticker in TICKERS:
-        process_ticker(ticker)
-        time.sleep(1.5) # Slight pause for API politeness
+    for ticker in tickers:
+        process_ticker(ticker, fetch_start, args.end_date)
+        time.sleep(args.sleep_seconds) # Slight pause for API politeness
         
     print("🏁 Ingestion Complete.")

@@ -3,20 +3,31 @@ import argparse
 import gzip
 import json
 import os
+import random
 import re
+import socket
+import sys
 import time
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+try:
+    from src.ticker_universes import DOW_30_TICKERS
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.ticker_universes import DOW_30_TICKERS
+
 SEC_BASE = "https://www.sec.gov"
 SEC_TIMEZONE = ZoneInfo("America/New_York")
 
-DEFAULT_TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
+DEFAULT_TICKERS = DOW_30_TICKERS
 DEFAULT_FORMS = ["10-K", "10-Q", "8-K"]
-DEFAULT_START_DATE = "2024-01-01"
-DEFAULT_END_DATE = "2025-01-01"
+DEFAULT_START_DATE = "2025-01-01"
+DEFAULT_END_DATE = "2026-01-01"
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def maybe_gzip_decode(data):
@@ -25,23 +36,58 @@ def maybe_gzip_decode(data):
     return data
 
 
-def fetch_url(url, dest_path, user_agent, sleep_seconds=0.2):
+def append_jsonl(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+
+def fetch_url(
+    url,
+    dest_path,
+    user_agent,
+    sleep_seconds=0.2,
+    timeout_seconds=30,
+    max_retries=5,
+    retry_backoff_seconds=2.0,
+):
     # Fetch and cache remote resources with a minimal SEC-friendly delay.
     if dest_path and os.path.exists(dest_path):
         with open(dest_path, "rb") as f:
             return maybe_gzip_decode(f.read())
     req = Request(url, headers={"User-Agent": user_agent})
-    try:
-        with urlopen(req) as resp:
-            data = resp.read()
-    except (HTTPError, URLError) as e:
-        raise RuntimeError(f"Failed to fetch {url}: {e}") from e
-    if dest_path:
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        with open(dest_path, "wb") as f:
-            f.write(data)
-    time.sleep(sleep_seconds)
-    return maybe_gzip_decode(data)
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urlopen(req, timeout=timeout_seconds) as resp:
+                data = resp.read()
+            if dest_path:
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with open(dest_path, "wb") as f:
+                    f.write(data)
+            time.sleep(sleep_seconds)
+            return maybe_gzip_decode(data)
+        except HTTPError as e:
+            last_error = e
+            if e.code not in RETRYABLE_STATUS_CODES or attempt == max_retries:
+                break
+            wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
+            print(
+                f"⚠️  HTTP {e.code} fetching {url} "
+                f"(attempt {attempt}/{max_retries}); retrying in {wait_time:.1f}s..."
+            )
+            time.sleep(wait_time)
+        except (URLError, TimeoutError, socket.timeout) as e:
+            last_error = e
+            if attempt == max_retries:
+                break
+            wait_time = retry_backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
+            print(
+                f"⚠️  Network error fetching {url}: {e} "
+                f"(attempt {attempt}/{max_retries}); retrying in {wait_time:.1f}s..."
+            )
+            time.sleep(wait_time)
+    raise RuntimeError(f"Failed to fetch {url}: {last_error}") from last_error
 
 
 def load_company_tickers(cache_dir, user_agent, sleep_seconds):
@@ -166,6 +212,14 @@ def load_existing_manifest(manifest_path):
     return seen
 
 
+def iter_index_year_quarters(start_date, end_date):
+    # end_date is exclusive; only fetch index files that can contain rows in [start_date, end_date).
+    last_included_day = end_date - timedelta(days=1)
+    for year in range(start_date.year, last_included_day.year + 1):
+        for quarter in ("QTR1", "QTR2", "QTR3", "QTR4"):
+            yield year, quarter
+
+
 def main():
     parser = argparse.ArgumentParser(description="Ingest SEC filings via master.idx")
     parser.add_argument("--tickers", default=",".join(DEFAULT_TICKERS))
@@ -177,6 +231,10 @@ def main():
     parser.add_argument("--manifest", default="sec_bulk_filings/filings_manifest.jsonl")
     parser.add_argument("--user-agent", default=os.getenv("SEC_USER_AGENT"))
     parser.add_argument("--sleep-seconds", type=float, default=0.2)
+    parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--max-retries", type=int, default=5)
+    parser.add_argument("--retry-backoff-seconds", type=float, default=2.0)
+    parser.add_argument("--failed-log", default="sec_bulk_filings/failed_downloads.jsonl")
     parser.add_argument("--include-amends", action="store_true", default=True)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
@@ -189,6 +247,8 @@ def main():
     forms = [f.strip().upper() for f in args.forms.split(",") if f.strip()]
     start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()
     end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date()
+    if end_date <= start_date:
+        raise SystemExit("--end-date must be after --start-date")
 
     ensure_dir(args.cache_dir)
     ensure_dir(args.filings_dir)
@@ -208,13 +268,20 @@ def main():
     if not target_ciks:
         raise SystemExit("No valid tickers found; aborting.")
 
-    quarters = ["QTR1", "QTR2", "QTR3", "QTR4"]
     all_rows = []
-    # Pull 2024 master.idx files and aggregate rows.
-    for qtr in quarters:
-        url = f"{SEC_BASE}/Archives/edgar/full-index/2024/{qtr}/master.idx"
-        cache_path = os.path.join(args.cache_dir, f"2024_{qtr}_master.idx")
-        raw = fetch_url(url, cache_path, args.user_agent, args.sleep_seconds)
+    # Pull only the yearly quarter indexes needed for the requested date range.
+    for year, qtr in iter_index_year_quarters(start_date, end_date):
+        url = f"{SEC_BASE}/Archives/edgar/full-index/{year}/{qtr}/master.idx"
+        cache_path = os.path.join(args.cache_dir, f"{year}_{qtr}_master.idx")
+        raw = fetch_url(
+            url,
+            cache_path,
+            args.user_agent,
+            args.sleep_seconds,
+            args.timeout_seconds,
+            args.max_retries,
+            args.retry_backoff_seconds,
+        )
         text = raw.decode("latin-1", errors="ignore")
         all_rows.extend(parse_master_idx(text))
 
@@ -238,12 +305,20 @@ def main():
         filtered = filtered[: args.limit]
 
     seen_accessions = load_existing_manifest(args.manifest)
+    matched_accessions = {
+        os.path.splitext(os.path.basename(row["filename"]))[0]
+        for row in filtered
+    }
+    already_downloaded = len(matched_accessions & seen_accessions)
 
     print(f"✅ Rows matched: {len(filtered)}")
     if not filtered:
         return
+    if already_downloaded:
+        print(f"Resume: skipping {already_downloaded} filings already recorded in {args.manifest}")
 
     added = 0
+    failed = 0
     for row in filtered:
         filename = row["filename"]
         accession = os.path.splitext(os.path.basename(filename))[0]
@@ -259,7 +334,28 @@ def main():
         document_path = os.path.join(filing_dir, "document.html")
 
         url = f"{SEC_BASE}/Archives/{filename}"
-        raw = fetch_url(url, submission_path, args.user_agent, args.sleep_seconds)
+        try:
+            raw = fetch_url(
+                url,
+                submission_path,
+                args.user_agent,
+                args.sleep_seconds,
+                args.timeout_seconds,
+                args.max_retries,
+                args.retry_backoff_seconds,
+            )
+        except RuntimeError as e:
+            failed += 1
+            print(f"⚠️  {e} -- skipping {accession}")
+            append_jsonl(args.failed_log, {
+                "accession_number": accession,
+                "ticker": ticker,
+                "form": row["form"],
+                "source_url": url,
+                "error": str(e),
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            continue
         content = raw.decode("latin-1", errors="ignore")
         header = content[:20000]
 
@@ -301,6 +397,8 @@ def main():
             print(f"  ... downloaded {added} filings")
 
     print(f"✅ Downloaded {added} filings to {args.filings_dir}")
+    if failed:
+        print(f"⚠️  Skipped {failed} filings after retries; see {args.failed_log}")
 
 
 if __name__ == "__main__":

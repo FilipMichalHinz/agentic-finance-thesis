@@ -1,3 +1,4 @@
+import os
 from typing import Optional, List, Dict
 
 from langchain_core.tools import tool
@@ -25,5 +26,7 @@ def search_filings(
         ticker=ticker,
         as_of=as_of,
         match_threshold=match_threshold,
+        provider=os.getenv("EMBEDDING_PROVIDER", "gemini"),
+        gemini_model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
         device=device_norm,
     )

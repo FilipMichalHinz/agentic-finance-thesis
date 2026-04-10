@@ -4,8 +4,10 @@ import glob
 import time
 import json
 import random
+import sys
 import httpx
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -15,17 +17,23 @@ from google.genai import types
 from sec_edgar_downloader import Downloader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+try:
+    from src.ticker_universes import DOW_30_TICKERS
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.ticker_universes import DOW_30_TICKERS
+
 # --- 1. CONFIGURATION ---
 load_dotenv()
 
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"), http_options={'timeout': 300})
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"), http_options={"timeout": 300000})
 
 DOWNLOAD_FOLDER = "sec_data_cache"
 USER_AGENT_NAME = "AgenticFinanceThesis"
 USER_AGENT_EMAIL = "nimy21ac@student.cbs.dk"
 
-TICKERS = ["TSLA"]
+TICKERS = DOW_30_TICKERS
 FORM_TYPES = ["10-K", "10-Q", "8-K"]
 SEC_TIMEZONE = ZoneInfo("America/New_York")
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "1"))
@@ -46,8 +54,12 @@ def get_batch_embeddings(texts):
         try:
             # New Gemini API supports list of contents for batching
             response = client.models.embed_content(
-                model="text-embedding-004",
-                contents=texts
+                model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
+                contents=texts,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=768,
+                    task_type="RETRIEVAL_DOCUMENT",
+                ),
             )
             # Extract list of vectors
             return [e.values for e in response.embeddings]

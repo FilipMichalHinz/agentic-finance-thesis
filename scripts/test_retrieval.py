@@ -3,7 +3,6 @@ import argparse
 import os
 
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 from supabase import create_client, Client
 
 
@@ -14,6 +13,8 @@ def parse_args():
     parser.add_argument("--time", required=True, help="ISO timestamp, e.g. 2024-08-01T00:00:00Z")
     parser.add_argument("--match-threshold", type=float, default=0.3)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--provider", choices=["gemini", "local"], default=os.getenv("EMBEDDING_PROVIDER", "gemini"))
+    parser.add_argument("--gemini-model", default=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"))
     parser.add_argument("--model", default="intfloat/e5-base-v2")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--normalize", action="store_true", default=True)
@@ -30,12 +31,30 @@ def main():
         raise SystemExit("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
 
     supabase: Client = create_client(supabase_url, supabase_key)
-    model = SentenceTransformer(args.model, device=args.device)
-    query_vector = model.encode(
-        [args.query],
-        normalize_embeddings=args.normalize,
-        show_progress_bar=False,
-    )[0].tolist()
+    if args.provider == "gemini":
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if not google_key:
+            raise SystemExit("Set GOOGLE_API_KEY")
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=google_key)
+        response = client.models.embed_content(
+            model=args.gemini_model,
+            contents=[args.query],
+            config=types.EmbedContentConfig(
+                output_dimensionality=768,
+                task_type="RETRIEVAL_QUERY",
+            ),
+        )
+        query_vector = response.embeddings[0].values
+    else:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(args.model, device=args.device)
+        query_vector = model.encode(
+            [args.query],
+            normalize_embeddings=args.normalize,
+            show_progress_bar=False,
+        )[0].tolist()
 
     res = supabase.rpc(
         "search_knowledge_base",
