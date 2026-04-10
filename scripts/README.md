@@ -94,3 +94,83 @@ python scripts/embed_chunks.py --ticker MSFT --limit 50
 - `--limit 0` (no limit)
 - `--ticker MSFT`
 - `--log-file sec_bulk_filings/failed_embeddings.jsonl`
+
+## Script: `scripts/ingest_sec_filing_events.py`
+
+Loads the already-downloaded SEC manifest into `sec_filing_events`, which is the right
+table for building the fundamental analyst's daily event package.
+
+### Required
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+- Apply `supabase/migrations/20260410124500_add_sec_filing_events.sql`
+
+### Example
+```bash
+python scripts/ingest_sec_filing_events.py
+```
+
+### Optional flags
+- `--manifest sec_bulk_filings/filings_manifest.jsonl`
+- `--db-batch-size 500`
+- `--limit 100`
+
+### Stored Fields
+- `ticker`, `cik`, `company_name`
+- `form`, `filing_date`, `acceptance_datetime`
+- `accession_number`, `source_url`
+- local file references: `filename`, `submission_path`, `document_path`
+
+### Note
+- If `knowledge_base` is already populated with filing metadata, you can also derive `sec_filing_events` in SQL via a `SELECT DISTINCT ON (accession_number)` projection instead of reading the manifest again. The script is just the simplest standalone path.
+
+## FMP Ratios Table
+
+For deeper fundamental analysis, use `fundamental_ratios` rather than any daily Yahoo snapshot table.
+The table is created by:
+
+- `supabase/migrations/20260410113000_add_fundamental_ratios.sql`
+
+It stores one row per reported period from the FMP `ratios` endpoint:
+
+- identity fields: `provider`, `ticker`, `company_name`, `source_period_key`
+- timing fields: `period_type`, `period_end_date`, `filing_date`, `available_at`
+- period labels: `fiscal_year`, `fiscal_quarter`, `calendar_year`, `calendar_quarter`
+- ratio fields: `current_ratio`, `quick_ratio`, `cash_ratio`, `debt_ratio`, `debt_to_equity`, `interest_coverage`, `gross_margin`, `operating_margin`, `pretax_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `return_on_capital_employed`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`, `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_cash_flow`, `price_to_free_cash_flow`, `price_earnings_to_growth`, `enterprise_value_multiple`, `dividend_yield`
+- `raw_payload` for provider-specific extras
+
+This table is the correct base for periodic FMP ratio ingestion and deeper per-ticker analysis. Daily agent packages should instead be built from:
+
+- `market_prices_daily`
+- `sec_filing_events`
+
+## Script: `scripts/ingest_fundamentals_fmp.py`
+
+Loads periodic financial ratios from FMP into `fundamental_ratios`.
+
+### Required
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+- `FMP_API_KEY` or `FINANCIAL_MODELING_PREP_API_KEY`
+- Apply `supabase/migrations/20260410113000_add_fundamental_ratios.sql`
+
+### Example
+```bash
+python scripts/ingest_fundamentals_fmp.py
+```
+
+### Optional flags
+- `--tickers AAPL,MSFT`
+- `--periods quarter,annual`
+- `--limit 12`
+- `--sleep-seconds 0.2`
+- `--timeout-seconds 30`
+- `--max-retries 5`
+- `--retry-backoff-seconds 2.0`
+- `--db-batch-size 200`
+- `--api-key ...`
+
+### What It Stores
+- period identity and timing: `period_type`, `period_end_date`, `filing_date`, `available_at`
+- liquidity and leverage: `current_ratio`, `quick_ratio`, `cash_ratio`, `debt_ratio`, `debt_to_equity`, `interest_coverage`
+- profitability and efficiency: `gross_margin`, `operating_margin`, `pretax_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `return_on_capital_employed`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`
+- valuation: `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_cash_flow`, `price_to_free_cash_flow`, `price_earnings_to_growth`, `enterprise_value_multiple`, `dividend_yield`
+- `raw_payload` containing the original FMP ratio row
