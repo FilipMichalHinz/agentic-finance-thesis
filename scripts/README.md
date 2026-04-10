@@ -177,10 +177,9 @@ python scripts/ingest_fundamentals_fmp.py
 
 ## Script: `src/news_data_ingestion.py`
 
-Loads Financial Modeling Prep news into Supabase for daily portfolio context.
-It writes into two separate tables:
-- `stock_news_daily`
-- `general_news_daily`
+Loads FMP news into Supabase for daily portfolio context via two scripts:
+- `scripts/ingest_general_news_fmp.py` -> `general_news_daily`
+- `scripts/ingest_stock_news_fmp.py` -> `stock_news_daily`
 
 Schema note:
 - `general_news_daily` does not store ticker or symbols
@@ -190,31 +189,31 @@ Daily caps:
 - general news: max `10` per day by default
 
 ### Required
-- `FMP_API_KEY`
+- `FMP_API_KEY` or `FINANCIAL_MODELING_PREP_API_KEY`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-### Example: one-week NVDA test
+### Example: one-week general news dry run
 ```bash
-python src/news_data_ingestion.py \
-  --tickers NVDA \
-  --start-date 2026-04-03 \
-  --end-date 2026-04-10
+python scripts/ingest_general_news_fmp.py \
+  --start-date 2025-04-11 \
+  --end-date 2025-04-18 \
+  --dry-run
 ```
 
-### Example: dry run
+### Example: one-week NVDA stock news dry run
 ```bash
-python src/news_data_ingestion.py \
+python scripts/ingest_stock_news_fmp.py \
   --tickers NVDA \
-  --start-date 2026-04-03 \
-  --end-date 2026-04-10 \
+  --start-date 2025-04-11 \
+  --end-date 2025-04-18 \
   --dry-run
 ```
 
 ### Optional flags
-- `--news-types stock_news,general_news`
-- `--page-size 50`
-- `--general-pages 5`
-- `--max-stock-news-per-day 10`
-- `--max-general-news-per-day 10`
+- `--page-size 20`
+- `--max-pages 5`
 - `--sleep-seconds 0.25`
+- `--timeout-seconds 30.0`
+- `--max-retries 5`
+- `--retry-backoff-seconds 2.0`
