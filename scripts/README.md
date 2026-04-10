@@ -94,3 +94,47 @@ python scripts/embed_chunks.py --ticker MSFT --limit 50
 - `--limit 0` (no limit)
 - `--ticker MSFT`
 - `--log-file sec_bulk_filings/failed_embeddings.jsonl`
+
+## Script: `src/news_data_ingestion.py`
+
+Loads Financial Modeling Prep news into Supabase for daily portfolio context.
+It writes into two separate tables:
+- `stock_news_daily`
+- `general_news_daily`
+
+Schema note:
+- `general_news_daily` does not store ticker or symbols
+
+Daily caps:
+- stock news: max `10` per ticker per day by default
+- general news: max `10` per day by default
+
+### Required
+- `FMP_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+### Example: one-week NVDA test
+```bash
+python src/news_data_ingestion.py \
+  --tickers NVDA \
+  --start-date 2026-04-03 \
+  --end-date 2026-04-10
+```
+
+### Example: dry run
+```bash
+python src/news_data_ingestion.py \
+  --tickers NVDA \
+  --start-date 2026-04-03 \
+  --end-date 2026-04-10 \
+  --dry-run
+```
+
+### Optional flags
+- `--news-types stock_news,general_news`
+- `--page-size 50`
+- `--general-pages 5`
+- `--max-stock-news-per-day 10`
+- `--max-general-news-per-day 10`
+- `--sleep-seconds 0.25`
