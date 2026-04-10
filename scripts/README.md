@@ -50,6 +50,9 @@ python scripts/ingest_sec_index.py \
 Chunks downloaded filings and stores them in `knowledge_base` with `embedding = NULL`
 so you can run embeddings later as a separate job.
 
+By default, the script skips filings whose `accession_number` already exists in
+`knowledge_base`, so reruns only process newly downloaded filings.
+
 ### Required
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be set.
 
@@ -62,8 +65,9 @@ python scripts/chunk_filings.py
 - `--manifest sec_bulk_filings/filings_manifest.jsonl`
 - `--chunk-size 1000`
 - `--chunk-overlap 200`
-- `--db-batch-size 200`
+- `--db-batch-size 50`
 - `--limit 10` (debug)
+- `--rechunk-existing` (force reprocess filings already chunked)
 
 ## Script: `scripts/embed_chunks.py`
 
@@ -87,8 +91,8 @@ python scripts/embed_chunks.py --ticker MSFT --limit 50
 - `--device cpu`
 - `--normalize`
 - `--embed-batch-size 1`
-- `--db-batch-size 50`
-- `--sleep-seconds 1.0`
+- `--db-batch-size 25`
+- `--sleep-seconds 0.2`
 - `--max-retries 5`
 - `--timeout-seconds 300`
 - `--limit 0` (no limit)
@@ -255,6 +259,67 @@ python scripts/ingest_technical_indicators_fmp.py \
 - one column per indicator: `sma`, `ema`, `wma`, `dema`, `tema`, `rsi`, `standarddeviation`, `williams`, `adx`
 - stored indicator values are rounded to 2 decimal places
 - `raw_payload` containing the source FMP records merged by indicator for that day
+
+## FMP Economic Indicators Table
+
+For macro data, use `economic_indicators`.
+The table is created by:
+
+- `supabase/migrations/20260410165000_add_economic_indicators.sql`
+
+It stores one row per:
+
+- `country`
+- `indicator_name`
+- `event_date`
+
+This normalized shape fits macro series better than a wide table because GDP is quarterly while CPI, inflation, and unemployment are typically monthly.
+
+## Script: `scripts/ingest_economic_indicators_fmp.py`
+
+Loads FMP economic indicators into `economic_indicators`.
+
+### Required
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+- `FMP_API_KEY` or `FINANCIAL_MODELING_PREP_API_KEY`
+- Apply `supabase/migrations/20260410165000_add_economic_indicators.sql`
+
+### Defaults
+- indicators: `GDP,CPI,inflationRate,unemploymentRate`
+- country: `US`
+- date window: `2024-01-01` to `2026-04-10`
+
+### Example
+```bash
+python scripts/ingest_economic_indicators_fmp.py
+```
+
+### Example: dry run
+```bash
+python scripts/ingest_economic_indicators_fmp.py --dry-run
+```
+
+### Optional flags
+- `--indicators GDP,CPI,inflationRate,unemploymentRate`
+- `--country US`
+- `--start-date 2024-01-01`
+- `--end-date 2026-04-10`
+- `--sleep-seconds 0.2`
+- `--timeout-seconds 30`
+- `--db-batch-size 200`
+- `--dry-run`
+- `--api-key ...`
+
+### What It Stores
+- identity: `country`, `indicator_name`, `event_date`
+- normalized numeric value: `value`
+- stored values are rounded to 2 decimal places
+- `raw_payload` containing the source FMP record
+
+### Indicator Name Notes
+- FMP returns data for `inflationRate`, not `inflation`
+- FMP returns data for `unemploymentRate`; the script also accepts `unemployment`
+- the script accepts `inflation` and `unemployment` as aliases and stores the canonical FMP names
 
 ## Script: `src/news_data_ingestion.py`
 
