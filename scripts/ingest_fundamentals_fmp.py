@@ -26,71 +26,25 @@ RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 DEFAULT_PERIODS = ["annual"]
 
 NUMERIC_FIELD_MAPPINGS = {
-    "gross_margin": ["grossProfitMargin", "grossMargin"],
-    "ebit_margin": ["ebitMargin"],
-    "ebitda_margin": ["ebitdaMargin"],
-    "operating_margin": ["operatingProfitMargin", "operatingMargin"],
-    "pretax_margin": ["pretaxProfitMargin"],
-    "continuous_operations_profit_margin": ["continuousOperationsProfitMargin"],
-    "net_margin": ["netProfitMargin", "netMargin"],
-    "bottom_line_profit_margin": ["bottomLineProfitMargin"],
-    "receivables_turnover": ["receivablesTurnover"],
-    "payables_turnover": ["payablesTurnover"],
-    "inventory_turnover": ["inventoryTurnover"],
-    "fixed_asset_turnover": ["fixedAssetTurnover"],
-    "asset_turnover": ["assetTurnover"],
     "current_ratio": ["currentRatio"],
     "quick_ratio": ["quickRatio"],
-    "solvency_ratio": ["solvencyRatio"],
-    "cash_ratio": ["cashRatio"],
+    "gross_margin": ["grossProfitMargin", "grossMargin"],
+    "operating_margin": ["operatingProfitMargin", "operatingMargin"],
+    "net_margin": ["netProfitMargin", "netMargin"],
+    "return_on_assets": ["returnOnAssets"],
+    "return_on_equity": ["returnOnEquity"],
+    "debt_to_assets_ratio": ["debtToAssetsRatio", "debtRatio"],
+    "debt_to_equity": ["debtToEquityRatio", "debtEquityRatio", "debtToEquity"],
+    "interest_coverage_ratio": ["interestCoverageRatio", "interestCoverage"],
+    "asset_turnover": ["assetTurnover"],
+    "inventory_turnover": ["inventoryTurnover"],
+    "receivables_turnover": ["receivablesTurnover"],
     "price_to_earnings": ["priceToEarningsRatio", "priceEarningsRatio"],
-    "price_to_earnings_growth_ratio": ["priceToEarningsGrowthRatio", "priceEarningsToGrowthRatio", "pegRatio"],
-    "forward_price_to_earnings_growth_ratio": ["forwardPriceToEarningsGrowthRatio"],
-    "price_earnings_to_growth": ["priceToEarningsGrowthRatio", "priceEarningsToGrowthRatio", "pegRatio"],
     "price_to_book": ["priceToBookRatio", "priceBookValueRatio"],
     "price_to_sales": ["priceToSalesRatio"],
     "price_to_free_cash_flow": ["priceToFreeCashFlowRatio", "priceToFreeCashFlowsRatio"],
-    "price_to_operating_cash_flow": ["priceToOperatingCashFlowRatio", "priceCashFlowRatio"],
-    "price_to_cash_flow": ["priceToOperatingCashFlowRatio", "priceCashFlowRatio"],
-    "debt_to_assets_ratio": ["debtToAssetsRatio", "debtRatio"],
-    "debt_ratio": ["debtToAssetsRatio", "debtRatio"],
-    "debt_to_equity": ["debtToEquityRatio", "debtEquityRatio", "debtToEquity"],
-    "debt_to_capital_ratio": ["debtToCapitalRatio"],
-    "long_term_debt_to_capital_ratio": ["longTermDebtToCapitalRatio"],
-    "financial_leverage_ratio": ["financialLeverageRatio"],
-    "working_capital_turnover_ratio": ["workingCapitalTurnoverRatio"],
-    "operating_cash_flow_ratio": ["operatingCashFlowRatio"],
-    "operating_cash_flow_sales_ratio": ["operatingCashFlowSalesRatio"],
-    "free_cash_flow_operating_cash_flow_ratio": ["freeCashFlowOperatingCashFlowRatio"],
-    "debt_service_coverage_ratio": ["debtServiceCoverageRatio"],
-    "interest_coverage_ratio": ["interestCoverageRatio", "interestCoverage"],
-    "interest_coverage": ["interestCoverageRatio", "interestCoverage"],
-    "short_term_operating_cash_flow_coverage_ratio": ["shortTermOperatingCashFlowCoverageRatio"],
-    "operating_cash_flow_coverage_ratio": ["operatingCashFlowCoverageRatio"],
-    "capital_expenditure_coverage_ratio": ["capitalExpenditureCoverageRatio"],
-    "dividend_paid_and_capex_coverage_ratio": ["dividendPaidAndCapexCoverageRatio"],
-    "dividend_payout_ratio": ["dividendPayoutRatio"],
-    "dividend_yield": ["dividendYield"],
-    "dividend_yield_percentage": ["dividendYieldPercentage"],
-    "revenue_per_share": ["revenuePerShare"],
-    "net_income_per_share": ["netIncomePerShare"],
-    "interest_debt_per_share": ["interestDebtPerShare"],
-    "cash_per_share": ["cashPerShare"],
-    "book_value_per_share": ["bookValuePerShare"],
-    "tangible_book_value_per_share": ["tangibleBookValuePerShare"],
-    "shareholders_equity_per_share": ["shareholdersEquityPerShare"],
-    "operating_cash_flow_per_share": ["operatingCashFlowPerShare"],
-    "capex_per_share": ["capexPerShare"],
-    "free_cash_flow_per_share": ["freeCashFlowPerShare"],
-    "net_income_per_ebt": ["netIncomePerEBT"],
-    "ebt_per_ebit": ["ebtPerEbit"],
-    "price_to_fair_value": ["priceToFairValue"],
-    "debt_to_market_cap": ["debtToMarketCap"],
-    "effective_tax_rate": ["effectiveTaxRate"],
-    "return_on_assets": ["returnOnAssets"],
-    "return_on_equity": ["returnOnEquity"],
-    "return_on_capital_employed": ["returnOnCapitalEmployed"],
     "enterprise_value_multiple": ["enterpriseValueMultiple"],
+    "dividend_yield": ["dividendYield"],
 }
 
 
@@ -212,6 +166,12 @@ def parse_numeric(value):
     return number
 
 
+def round_metric(value):
+    if value is None:
+        return None
+    return round(value, 2)
+
+
 def sanitize_json(value):
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -232,7 +192,7 @@ def first_numeric(sample, keys):
         if key in sample:
             number = parse_numeric(sample.get(key))
             if number is not None:
-                return number
+                return round_metric(number)
     return None
 
 
@@ -295,33 +255,24 @@ def build_row(ticker, sample):
     except (TypeError, ValueError):
         fiscal_year = None
 
-    filing_date = parse_date(sample.get("filingDate") or sample.get("fillingDate"))
-    available_at = parse_datetime(sample.get("acceptedDate"))
-    company_name = sample.get("companyName") or sample.get("name")
     calendar_year = period_end.year
-    calendar_quarter = calendar_quarter_from_date(period_end)
     source_period_key = build_source_period_key(
         period_type=period_type,
         period_end_date=period_end.isoformat(),
-        filing_date=filing_date.isoformat() if filing_date else "",
+        filing_date="",
         fiscal_year=fiscal_year,
-        fiscal_quarter=fiscal_quarter,
+        fiscal_quarter=None,
     )
 
     row = {
         "provider": "fmp",
         "ticker": ticker,
-        "company_name": company_name,
         "source_period_key": source_period_key,
         "period_type": period_type,
         "period_end_date": period_end.isoformat(),
-        "filing_date": filing_date.isoformat() if filing_date else None,
-        "available_at": available_at,
         "reported_currency": sample.get("reportedCurrency"),
         "fiscal_year": fiscal_year,
-        "fiscal_quarter": fiscal_quarter,
         "calendar_year": calendar_year,
-        "calendar_quarter": calendar_quarter,
         "raw_payload": sanitize_json(sample),
     }
     for column, keys in NUMERIC_FIELD_MAPPINGS.items():

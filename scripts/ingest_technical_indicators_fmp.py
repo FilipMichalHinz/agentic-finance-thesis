@@ -132,6 +132,12 @@ def parse_numeric(value: Any) -> Optional[float]:
     return number
 
 
+def round_metric(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    return round(value, 2)
+
+
 def sanitize_json(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -183,7 +189,7 @@ def extract_indicator_value(record: Dict[str, Any], indicator: str) -> Optional[
     for key in INDICATOR_VALUE_KEYS[indicator]:
         number = parse_numeric(record.get(key))
         if number is not None:
-            return number
+            return round_metric(number)
 
     numeric_candidates: List[float] = []
     for key, value in record.items():
@@ -194,7 +200,7 @@ def extract_indicator_value(record: Dict[str, Any], indicator: str) -> Optional[
             numeric_candidates.append(number)
 
     if len(numeric_candidates) == 1:
-        return numeric_candidates[0]
+        return round_metric(numeric_candidates[0])
     return None
 
 
