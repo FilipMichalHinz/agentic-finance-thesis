@@ -7,6 +7,7 @@ import time
 
 import httpx
 from dotenv import load_dotenv
+from postgrest.exceptions import APIError
 from supabase import create_client, Client
 
 
@@ -17,9 +18,9 @@ def parse_args():
     parser.add_argument("--local-model", default="intfloat/e5-base-v2")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--normalize", action="store_true", default=True)
-    parser.add_argument("--embed-batch-size", type=int, default=1)
-    parser.add_argument("--db-batch-size", type=int, default=50)
-    parser.add_argument("--sleep-seconds", type=float, default=1.0)
+    parser.add_argument("--embed-batch-size", type=int, default=5)
+    parser.add_argument("--db-batch-size", type=int, default=25)
+    parser.add_argument("--sleep-seconds", type=float, default=0.2)
     parser.add_argument("--max-retries", type=int, default=5)
     parser.add_argument("--timeout-seconds", type=int, default=300)
     parser.add_argument("--limit", type=int, default=0)
@@ -37,14 +38,20 @@ def log_failed_embedding(path, payload):
         print(f"⚠️  Failed to log embedding failure: {e}")
 
 
-def render_progress(processed, total, bar_width=30):
+def render_progress(processed, total, bar_width=30, estimated_total=False):
+    if total is None:
+        print(f"\rProgress: {processed} rows", end="", flush=True)
+        return
     if total <= 0:
         print("\rProgress: 0/0", end="", flush=True)
         return
     ratio = min(max(processed / total, 0.0), 1.0)
     filled = int(bar_width * ratio)
     bar = "#" * filled + "-" * (bar_width - filled)
-    print(f"\rProgress: [{bar}] {processed}/{total}", end="", flush=True)
+    if estimated_total:
+        print(f"\rProgress: [{bar}] {processed}/{total} (est.)", end="", flush=True)
+    else:
+        print(f"\rProgress: [{bar}] {processed}/{total}", end="", flush=True)
 
 
 def get_batch_embeddings_gemini(client, model_name, texts, max_retries, sleep_seconds):
@@ -86,6 +93,72 @@ def get_batch_embeddings_local(model, texts, normalize):
     return vectors.tolist()
 
 
+def is_statement_timeout(exc):
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", "") or ""
+    details = getattr(exc, "details", "") or ""
+    text = f"{message} {details}".lower()
+    return code == "57014" or "statement timeout" in text
+
+
+def upsert_updates_with_retry(supabase: Client, updates):
+    if not updates:
+        return
+    try:
+        supabase.table("knowledge_base").upsert(updates, on_conflict="id").execute()
+    except APIError as exc:
+        if not is_statement_timeout(exc) or len(updates) == 1:
+            raise
+        midpoint = len(updates) // 2
+        print(
+            f"\n⚠️ statement timeout on embedding update batch of {len(updates)} rows; "
+            f"splitting into {midpoint} and {len(updates) - midpoint}"
+        )
+        upsert_updates_with_retry(supabase, updates[:midpoint])
+        upsert_updates_with_retry(supabase, updates[midpoint:])
+
+
+def fetch_remaining_count(supabase: Client, ticker: str):
+    count_query = (
+        supabase.table("knowledge_base")
+        .select("id", count="planned")
+        .is_("embedding", "null")
+    )
+    if ticker:
+        count_query = count_query.eq("ticker", ticker)
+    try:
+        return (count_query.execute().count or 0), True
+    except APIError as exc:
+        if is_statement_timeout(exc):
+            print("⚠️ remaining-row count timed out; continuing without a total progress estimate")
+            return None, False
+        raise
+
+
+def fetch_pending_rows(supabase: Client, batch_limit: int, last_id: int, ticker: str):
+    try:
+        query = (
+            supabase.table("knowledge_base")
+            .select("id, content, ticker, source_type, published_at")
+            .is_("embedding", "null")
+            .gt("id", last_id)
+            .order("id")
+            .limit(batch_limit)
+        )
+        if ticker:
+            query = query.eq("ticker", ticker)
+        return query.execute().data or []
+    except APIError as exc:
+        if not is_statement_timeout(exc) or batch_limit == 1:
+            raise
+        smaller_limit = max(1, batch_limit // 2)
+        print(
+            f"\n⚠️ read query timed out at batch size {batch_limit}; "
+            f"retrying with {smaller_limit}"
+        )
+        return fetch_pending_rows(supabase, smaller_limit, last_id, ticker)
+
+
 def main():
     args = parse_args()
     load_dotenv()
@@ -116,35 +189,16 @@ def main():
     else:
         raise SystemExit(f"Unknown provider: {args.provider}")
 
-    count_query = (
-        supabase.table("knowledge_base")
-        .select("id", count="exact")
-        .is_("embedding", "null")
-    )
-    if args.ticker:
-        count_query = count_query.eq("ticker", args.ticker)
-    total_remaining = count_query.execute().count or 0
+    total_remaining, estimated_total = fetch_remaining_count(supabase, args.ticker)
 
     processed = 0
     last_id = 0
-    render_progress(processed, total_remaining)
+    render_progress(processed, total_remaining, estimated_total=estimated_total)
     while True:
         remaining = args.limit - processed if args.limit else None
         batch_limit = min(args.db_batch_size, remaining) if remaining else args.db_batch_size
 
-        query = (
-            supabase.table("knowledge_base")
-            .select("id, content, ticker, source_type, published_at")
-            .is_("embedding", "null")
-            .gt("id", last_id)
-            .order("id")
-            .limit(batch_limit)
-        )
-        if args.ticker:
-            query = query.eq("ticker", args.ticker)
-
-        res = query.execute()
-        rows = res.data or []
+        rows = fetch_pending_rows(supabase, batch_limit, last_id, args.ticker)
         if not rows:
             break
 
@@ -175,10 +229,10 @@ def main():
             time.sleep(args.sleep_seconds)
 
         if updates:
-            supabase.table("knowledge_base").upsert(updates, on_conflict="id").execute()
+            upsert_updates_with_retry(supabase, updates)
 
         processed += len(rows)
-        render_progress(processed, total_remaining)
+        render_progress(processed, total_remaining, estimated_total=estimated_total)
         if args.limit and processed >= args.limit:
             break
 

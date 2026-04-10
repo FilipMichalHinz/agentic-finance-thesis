@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from postgrest.exceptions import APIError
 from supabase import create_client, Client
 
 
@@ -15,8 +16,9 @@ def parse_args():
     parser.add_argument("--manifest", default="sec_bulk_filings/filings_manifest.jsonl")
     parser.add_argument("--chunk-size", type=int, default=1000)
     parser.add_argument("--chunk-overlap", type=int, default=200)
-    parser.add_argument("--db-batch-size", type=int, default=200)
+    parser.add_argument("--db-batch-size", type=int, default=50)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--rechunk-existing", action="store_true", help="Reprocess filings that already have chunks in knowledge_base")
     return parser.parse_args()
 
 
@@ -46,6 +48,57 @@ def html_to_chunks(html_text, chunk_size, chunk_overlap):
     return splitter.split_text(text)
 
 
+def is_statement_timeout(exc):
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", "") or ""
+    details = getattr(exc, "details", "") or ""
+    text = f"{message} {details}".lower()
+    return code == "57014" or "statement timeout" in text
+
+
+def upsert_rows_with_retry(supabase: Client, rows, depth=0):
+    if not rows:
+        return
+    try:
+        supabase.table("knowledge_base").upsert(
+            rows,
+            on_conflict="accession_number,chunk_index"
+        ).execute()
+    except APIError as exc:
+        if not is_statement_timeout(exc) or len(rows) == 1:
+            raise
+        midpoint = len(rows) // 2
+        print(
+            f"⚠️ statement timeout on batch of {len(rows)} rows; "
+            f"splitting into {midpoint} and {len(rows) - midpoint}"
+        )
+        upsert_rows_with_retry(supabase, rows[:midpoint], depth + 1)
+        upsert_rows_with_retry(supabase, rows[midpoint:], depth + 1)
+
+
+def load_existing_accessions(supabase: Client, page_size=1000):
+    existing = set()
+    last_id = 0
+    while True:
+        res = (
+            supabase.table("knowledge_base")
+            .select("id, accession_number")
+            .gt("id", last_id)
+            .order("id")
+            .limit(page_size)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            break
+        last_id = rows[-1]["id"]
+        for row in rows:
+            accession_number = row.get("accession_number")
+            if accession_number:
+                existing.add(accession_number)
+    return existing
+
+
 def main():
     args = parse_args()
     load_dotenv()
@@ -60,7 +113,13 @@ def main():
     if not os.path.exists(args.manifest):
         raise SystemExit(f"Manifest not found: {args.manifest}")
 
+    existing_accessions = set()
+    if not args.rechunk_existing:
+        existing_accessions = load_existing_accessions(supabase)
+        print(f"Skipping {len(existing_accessions)} accessions already chunked in knowledge_base")
+
     total = 0
+    skipped = 0
     pending_rows = []
     with open(args.manifest, "r", encoding="utf-8") as f:
         for line in f:
@@ -72,6 +131,13 @@ def main():
             try:
                 metadata = json.loads(line)
             except json.JSONDecodeError:
+                continue
+
+            accession_number = metadata.get("accession_number")
+            if not accession_number:
+                continue
+            if accession_number in existing_accessions:
+                skipped += 1
                 continue
 
             document_path = metadata.get("document_path")
@@ -91,7 +157,6 @@ def main():
 
             ticker = metadata.get("ticker")
             source_type = metadata.get("form")
-            accession_number = metadata.get("accession_number")
             source_url = metadata.get("source_url")
             filing_date = metadata.get("filing_date") or metadata.get("date_filed")
             acceptance_dt = metadata.get("acceptance_datetime")
@@ -111,20 +176,16 @@ def main():
                 })
 
                 if len(pending_rows) >= args.db_batch_size:
-                    supabase.table("knowledge_base").upsert(
-                        pending_rows,
-                        on_conflict="accession_number,chunk_index"
-                    ).execute()
+                    upsert_rows_with_retry(supabase, pending_rows)
                     pending_rows = []
             total += 1
 
     if pending_rows:
-        supabase.table("knowledge_base").upsert(
-            pending_rows,
-            on_conflict="accession_number,chunk_index"
-        ).execute()
+        upsert_rows_with_retry(supabase, pending_rows)
 
     print(f"✅ Chunked and stored {total} filings")
+    if skipped:
+        print(f"↳ Skipped {skipped} already-chunked filings")
 
 
 if __name__ == "__main__":
