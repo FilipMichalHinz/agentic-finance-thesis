@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
+from src.integrations.stock_news import build_daily_news_package_fields_for_date
 
 AgentName = Literal["technical", "fundamental", "news"]
 
@@ -96,6 +97,8 @@ def load_daily_agent_package(
     package_date: str,
     *,
     ticker: Optional[str] = None,
+    simulation_mode: Optional[str] = None,
+    disinformation_policy: Optional[str] = None,
 ) -> DailyAgentPackage:
     """
     Load the exact screening package for one agent on one trading date.
@@ -121,10 +124,23 @@ def load_daily_agent_package(
         )
 
     if agent == "news":
+        stock_rows = _fetch_view_rows("daily_news_analyst_screening_view", package_date, ticker=ticker)
+        if simulation_mode and simulation_mode.strip().lower() not in {"", "clean", "baseline", "normal"}:
+            news_fields_by_ticker = build_daily_news_package_fields_for_date(
+                package_date,
+                simulation_mode=simulation_mode,
+                disinformation_policy=disinformation_policy,
+            )
+            for row in stock_rows:
+                merged_fields = news_fields_by_ticker.get(row["ticker"])
+                if merged_fields:
+                    row["latest_news_id"] = merged_fields["latest_news_id"]
+                    row["latest_news_title"] = merged_fields["latest_news_title"]
+                    row["daily_news_count"] = merged_fields["daily_news_count"]
         return DailyAgentPackage(
             agent=agent,
             package_date=package_date,
-            stocks=_fetch_view_rows("daily_news_analyst_screening_view", package_date, ticker=ticker),
+            stocks=stock_rows,
             shared_context=_fetch_single_context_row("daily_news_shared_context_view", package_date),
         )
 
@@ -135,6 +151,8 @@ def load_all_daily_agent_packages(
     package_date: str,
     *,
     ticker: Optional[str] = None,
+    simulation_mode: Optional[str] = None,
+    disinformation_policy: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Convenience wrapper for one full daily screening cycle.
@@ -143,5 +161,11 @@ def load_all_daily_agent_packages(
     return {
         "technical": load_daily_agent_package("technical", package_date, ticker=ticker).to_dict(),
         "fundamental": load_daily_agent_package("fundamental", package_date, ticker=ticker).to_dict(),
-        "news": load_daily_agent_package("news", package_date, ticker=ticker).to_dict(),
+        "news": load_daily_agent_package(
+            "news",
+            package_date,
+            ticker=ticker,
+            simulation_mode=simulation_mode,
+            disinformation_policy=disinformation_policy,
+        ).to_dict(),
     }

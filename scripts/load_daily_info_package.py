@@ -27,6 +27,18 @@ def parse_args() -> argparse.Namespace:
         help="Optional single-ticker filter for inspection. Omit this in normal backtest runs.",
     )
     parser.add_argument(
+        "--simulation-mode",
+        choices=["clean", "disinformation"],
+        default="clean",
+        help="Use clean or disinformation stock-news mode for the News Analyst package.",
+    )
+    parser.add_argument(
+        "--disinformation-policy",
+        choices=["append", "replace"],
+        default="append",
+        help="How manipulated stock news is merged when simulation mode is disinformation.",
+    )
+    parser.add_argument(
         "--indent",
         type=int,
         default=2,
@@ -39,9 +51,20 @@ def main() -> int:
     args = parse_args()
 
     if args.agent == "all":
-        payload = load_all_daily_agent_packages(args.package_date, ticker=args.ticker)
+        payload = load_all_daily_agent_packages(
+            args.package_date,
+            ticker=args.ticker,
+            simulation_mode=args.simulation_mode,
+            disinformation_policy=args.disinformation_policy,
+        )
     else:
-        payload = load_daily_agent_package(args.agent, args.package_date, ticker=args.ticker).to_dict()
+        payload = load_daily_agent_package(
+            args.agent,
+            args.package_date,
+            ticker=args.ticker,
+            simulation_mode=args.simulation_mode,
+            disinformation_policy=args.disinformation_policy,
+        ).to_dict()
 
     print(json.dumps(payload, indent=args.indent, default=str))
     return 0

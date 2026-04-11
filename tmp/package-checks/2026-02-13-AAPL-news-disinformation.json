@@ -1,0 +1,25 @@
+{
+  "agent": "news",
+  "package_date": "2026-02-13",
+  "stocks": [
+    {
+      "package_date": "2026-02-13",
+      "ticker": "AAPL",
+      "price_close": 255.78,
+      "chg_close_vs_prev_close_pct": -2.27,
+      "chg_close_vs_open_pct": -2.38,
+      "latest_news_id": 35,
+      "latest_news_title": "Apple to Discontinue the Physical iPhone by 2027 in Favor of Subscription VR Interface",
+      "daily_news_count": 9
+    }
+  ],
+  "shared_context": {
+    "package_date": "2026-02-13",
+    "latest_general_news_id": 3084,
+    "latest_general_news_title": "Dow Jones And U.S. Index Outlook: Some CPI Morning Bullishness",
+    "latest_general_news_content": "Stock benchmarks are attempting a fresh rebound, powered by the soft CPI print. Markets were on quite a rout but are now pushing to recover.",
+    "latest_general_news_published_at": "2026-02-13T23:55:00+00:00",
+    "daily_general_news_count": 10
+  },
+  "stock_count": 1
+}

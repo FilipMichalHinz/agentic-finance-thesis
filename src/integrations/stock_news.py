@@ -1,8 +1,9 @@
 import os
+from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from typing import Dict, List, Optional
 
-STOCK_NEWS_SELECT_COLUMNS = "title,content,publisher,site,published_at"
+STOCK_NEWS_SELECT_COLUMNS = "id,title,content,publisher,site,published_at"
 SIMULATION_MODE_ENV_KEYS = (
     "NEWS_SIMULATION_MODE",
     "SIMULATION_MODE",
@@ -102,6 +103,24 @@ def _fetch_clean_stock_news_rows(
     return response.data or []
 
 
+def _fetch_clean_stock_news_rows_for_day(
+    day_start: str,
+    day_end: str,
+) -> List[Dict[str, Optional[str]]]:
+    from src.integrations.supabase_client import get_supabase_client
+
+    supabase = get_supabase_client()
+    response = (
+        supabase.table("stock_news_daily")
+        .select(f"ticker,{STOCK_NEWS_SELECT_COLUMNS}")
+        .gte("published_at", day_start)
+        .lte("published_at", day_end)
+        .order("published_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
 def _fetch_manipulated_stock_news_rows(
     ticker: str,
     day_start: str,
@@ -114,6 +133,24 @@ def _fetch_manipulated_stock_news_rows(
         supabase.table("manipulated_stock_news_daily")
         .select(STOCK_NEWS_SELECT_COLUMNS)
         .eq("ticker", ticker)
+        .gte("published_at", day_start)
+        .lte("published_at", day_end)
+        .order("published_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def _fetch_manipulated_stock_news_rows_for_day(
+    day_start: str,
+    day_end: str,
+) -> List[Dict[str, Optional[str]]]:
+    from src.integrations.supabase_client import get_supabase_client
+
+    supabase = get_supabase_client()
+    response = (
+        supabase.table("manipulated_stock_news_daily")
+        .select(f"ticker,{STOCK_NEWS_SELECT_COLUMNS}")
         .gte("published_at", day_start)
         .lte("published_at", day_end)
         .order("published_at", desc=True)
@@ -154,6 +191,62 @@ def _format_stock_news_rows(rows: List[Dict[str, Optional[str]]]) -> List[Dict[s
         }
         for row in rows
     ]
+
+
+def _group_rows_by_ticker(rows: List[Dict[str, Optional[str]]]) -> Dict[str, List[Dict[str, Optional[str]]]]:
+    grouped: Dict[str, List[Dict[str, Optional[str]]]] = defaultdict(list)
+    for row in rows:
+        ticker = (row.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        grouped[ticker].append(row)
+    return grouped
+
+
+def build_daily_news_package_fields_for_date(
+    as_of: str,
+    *,
+    simulation_mode: Optional[str] = None,
+    disinformation_policy: Optional[str] = None,
+) -> Dict[str, Dict[str, Optional[str]]]:
+    """
+    Return agent-facing stock-news package fields for one trading day.
+
+    The returned mapping is keyed by ticker and always exposes a neutral schema:
+    latest_news_id, latest_news_title, daily_news_count. In disinformation mode
+    the values come from the merged clean/manipulated day-level news set, but
+    the calling code never needs to know which source produced the latest item.
+    """
+
+    as_of_date = _parse_as_of_date(as_of)
+    day_start, day_end = _day_bounds(as_of_date)
+    active_simulation_mode = resolve_stock_news_simulation_mode(simulation_mode)
+    active_disinformation_policy = resolve_stock_news_disinformation_policy(disinformation_policy)
+
+    clean_rows = _fetch_clean_stock_news_rows_for_day(day_start, day_end)
+    clean_by_ticker = _group_rows_by_ticker(clean_rows)
+
+    manipulated_by_ticker: Dict[str, List[Dict[str, Optional[str]]]] = {}
+    if active_simulation_mode == "disinformation":
+        manipulated_rows = _fetch_manipulated_stock_news_rows_for_day(day_start, day_end)
+        manipulated_by_ticker = _group_rows_by_ticker(manipulated_rows)
+
+    package_fields: Dict[str, Dict[str, Optional[str]]] = {}
+    all_tickers = set(clean_by_ticker.keys()) | set(manipulated_by_ticker.keys())
+    for ticker in all_tickers:
+        merged_rows = _merge_stock_news_rows(
+            clean_rows=clean_by_ticker.get(ticker, []),
+            manipulated_rows=manipulated_by_ticker.get(ticker, []),
+            disinformation_policy=active_disinformation_policy,
+        )
+        latest_row = merged_rows[0] if merged_rows else None
+        package_fields[ticker] = {
+            "latest_news_id": latest_row.get("id") if latest_row else None,
+            "latest_news_title": latest_row.get("title") if latest_row else None,
+            "daily_news_count": len(merged_rows),
+        }
+
+    return package_fields
 
 
 def retrieve_stock_news_for_date(
