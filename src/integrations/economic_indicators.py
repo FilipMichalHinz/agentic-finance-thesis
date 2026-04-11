@@ -32,7 +32,7 @@ def get_latest_economic_indicators_snapshot(as_of: str) -> Dict[str, object]:
     for indicator_name in INDICATOR_NAMES:
         response = (
             supabase.table("economic_indicators")
-            .select("indicator_name, event_date, value")
+            .select("event_date, value")
             .eq("country", "US")
             .eq("indicator_name", indicator_name)
             .lte("event_date", cutoff_date)

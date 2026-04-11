@@ -1,7 +1,20 @@
-from datetime import date, datetime, timezone
-from typing import Dict, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Dict
 
 from src.integrations.supabase_client import get_supabase_client
+
+
+INDICATOR_FIELDS = (
+    "sma",
+    "ema",
+    "wma",
+    "dema",
+    "tema",
+    "rsi",
+    "standarddeviation",
+    "williams",
+    "adx",
+)
 
 
 def _parse_as_of_date(as_of: str) -> date:
@@ -20,62 +33,64 @@ def _parse_as_of_date(as_of: str) -> date:
     return dt_value.astimezone(timezone.utc).date()
 
 
+def _empty_snapshot() -> Dict:
+    snapshot = {
+        "event_date": None,
+        "data_available": False,
+    }
+    for field in INDICATOR_FIELDS:
+        snapshot[field] = None
+    return snapshot
+
+
+def _get_snapshot_on_or_before(ticker: str, cutoff_date: date) -> Dict:
+    """
+    Return one compact indicator snapshot for the latest row at or before cutoff_date.
+    """
+    supabase = get_supabase_client()
+    response = (
+        supabase.table("technical_indicators_daily")
+        .select("event_date,sma,ema,wma,dema,tema,rsi,standarddeviation,williams,adx")
+        .eq("ticker", ticker)
+        .lte("event_date", cutoff_date.isoformat())
+        .order("event_date", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    if not rows:
+        return _empty_snapshot()
+
+    row = rows[0]
+    snapshot = {
+        "event_date": row.get("event_date"),
+        "data_available": True,
+    }
+    for field in INDICATOR_FIELDS:
+        snapshot[field] = row.get(field)
+    return snapshot
+
+
 def get_latest_technical_indicators(
     ticker: str,
     as_of: str,
 ) -> Dict:
     """
-    Return the latest stored technical indicators for a ticker on or before as_of.
+    Return the current indicator snapshot plus fixed lookback snapshots.
 
-    The payload is kept small so it is easy for the agent to read directly.
+    Each lookback uses the latest row on or before the target date so missing
+    market days do not break the output.
     """
     normalized_ticker = ticker.strip().upper()
     if not normalized_ticker:
         raise ValueError("ticker must be a non-empty string")
 
     as_of_date = _parse_as_of_date(as_of)
-    supabase = get_supabase_client()
-    response = (
-        supabase.table("technical_indicators_daily")
-        .select("ticker,event_date,sma,ema,wma,dema,tema,rsi,standarddeviation,williams,adx")
-        .eq("ticker", normalized_ticker)
-        .lte("event_date", as_of_date.isoformat())
-        .order("event_date", desc=True)
-        .limit(1)
-        .execute()
-    )
-    rows = response.data or []
-
-    if not rows:
-        return {
-            "ticker": normalized_ticker,
-            "as_of": as_of_date.isoformat(),
-            "event_date": None,
-            "data_available": False,
-            "sma": None,
-            "ema": None,
-            "wma": None,
-            "dema": None,
-            "tema": None,
-            "rsi": None,
-            "standarddeviation": None,
-            "williams": None,
-            "adx": None,
-        }
-
-    row = rows[0]
     return {
-        "ticker": row.get("ticker", normalized_ticker),
+        "ticker": normalized_ticker,
         "as_of": as_of_date.isoformat(),
-        "event_date": row.get("event_date"),
-        "data_available": True,
-        "sma": row.get("sma"),
-        "ema": row.get("ema"),
-        "wma": row.get("wma"),
-        "dema": row.get("dema"),
-        "tema": row.get("tema"),
-        "rsi": row.get("rsi"),
-        "standarddeviation": row.get("standarddeviation"),
-        "williams": row.get("williams"),
-        "adx": row.get("adx"),
+        "current": _get_snapshot_on_or_before(normalized_ticker, as_of_date),
+        "lookback_7d": _get_snapshot_on_or_before(normalized_ticker, as_of_date - timedelta(days=7)),
+        "lookback_30d": _get_snapshot_on_or_before(normalized_ticker, as_of_date - timedelta(days=30)),
+        "lookback_90d": _get_snapshot_on_or_before(normalized_ticker, as_of_date - timedelta(days=90)),
     }
