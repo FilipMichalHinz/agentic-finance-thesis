@@ -109,13 +109,24 @@ workflow.add_node("portfolio_manager", portfolio_manager_node)
 workflow.add_node("build_trade_preview", build_trade_preview_node)
 
 workflow.set_entry_point("load_baseline_inputs")
+
+# The three specialist analysts screen independently from the same prepared packages.
 workflow.add_edge("load_baseline_inputs", "technical_screen")
-workflow.add_edge("technical_screen", "news_screen")
-workflow.add_edge("news_screen", "fundamental_screen")
+workflow.add_edge("load_baseline_inputs", "news_screen")
+workflow.add_edge("load_baseline_inputs", "fundamental_screen")
+
+# LangGraph waits for all incoming branches before running the merge step.
+workflow.add_edge("technical_screen", "build_shared_deep_analysis_set")
+workflow.add_edge("news_screen", "build_shared_deep_analysis_set")
 workflow.add_edge("fundamental_screen", "build_shared_deep_analysis_set")
+
+# The deep-analysis reports are also independent once the shared set is fixed.
 workflow.add_edge("build_shared_deep_analysis_set", "technical_deep_analysis")
-workflow.add_edge("technical_deep_analysis", "news_deep_analysis")
-workflow.add_edge("news_deep_analysis", "fundamental_deep_analysis")
+workflow.add_edge("build_shared_deep_analysis_set", "news_deep_analysis")
+workflow.add_edge("build_shared_deep_analysis_set", "fundamental_deep_analysis")
+
+workflow.add_edge("technical_deep_analysis", "portfolio_manager")
+workflow.add_edge("news_deep_analysis", "portfolio_manager")
 workflow.add_edge("fundamental_deep_analysis", "portfolio_manager")
 workflow.add_edge("portfolio_manager", "build_trade_preview")
 workflow.add_edge("build_trade_preview", END)
