@@ -16,13 +16,18 @@ except ModuleNotFoundError:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
     from src.ticker_universes import DOW_30_TICKERS
 
+DEFAULT_START_DATE = "2026-01-01"
+# Yahoo Finance treats `end` as exclusive, so use April 11 to include April 10.
+DEFAULT_END_DATE = "2026-04-11"
+DEFAULT_HISTORY_YEARS = 0
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Ingest daily market prices into Supabase")
     parser.add_argument("--tickers", default=",".join(DOW_30_TICKERS))
-    parser.add_argument("--start-date", default="2025-01-01")
-    parser.add_argument("--end-date", default="2026-01-01")
-    parser.add_argument("--history-years", type=int, default=1)
+    parser.add_argument("--start-date", default=DEFAULT_START_DATE, help="Inclusive start date, format YYYY-MM-DD")
+    parser.add_argument("--end-date", default=DEFAULT_END_DATE, help="Exclusive end date, format YYYY-MM-DD")
+    parser.add_argument("--history-years", type=int, default=DEFAULT_HISTORY_YEARS)
     parser.add_argument("--sleep-seconds", type=float, default=0.5)
     return parser.parse_args()
 
@@ -119,6 +124,9 @@ if __name__ == "__main__":
     if args.history_years < 0:
         raise SystemExit("--history-years must be >= 0")
     target_start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()
+    target_end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date()
+    if target_end_date <= target_start_date:
+        raise SystemExit("--end-date must be after --start-date")
     fetch_start_date = shift_years(target_start_date, -args.history_years)
     fetch_start = fetch_start_date.isoformat()
 
