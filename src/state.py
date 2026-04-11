@@ -1,42 +1,39 @@
-#In LangGraph, the "State" is a Python class that holds the memory shared between all agents in the system. 
-#Let's say if the Sentiment Analyst finds a bad news, it writes it here so the CIO can read it.
+from typing import Any, Dict, List, Optional
 
-import operator
-from typing import Annotated, List, Dict, Any, Optional
 from typing_extensions import TypedDict
 
-class AgentState(TypedDict):
+
+class AgentState(TypedDict, total=False):
     """
-    The shared memory of the system. 
-    Now perfectly aligned with your Architecture Diagram.
+    Shared state for one baseline daily run.
+
+    The baseline keeps one explicit state object so that the workflow remains easy
+    to inspect. The state contains only current-run coordination data. Persistent
+    history still belongs in Supabase.
     """
-    
-    # 1. The Input
-    ticker: str
-    as_of: Optional[str]
-    
-    # 2. Data Layer (The 3 Analysts)
-    # Stream A: Sentiment (News)
-    sentiment_score: Optional[float]     # -1.0 to +1.0
-    sentiment_analysis: Optional[str]    # "Positive mentions of new CEO..."
-    
-    # Stream B: Fundamentals (Filings)
-    fundamental_metrics: Optional[Dict]  # P/E, Revenue, Debt/Equity
-    fundamental_analysis: Optional[str]  # "Strong balance sheet but slowing growth..."
-    
-    # Stream C: Technicals (Price Action) -- NEW!
-    technical_signals: Optional[Dict]    # RSI, MACD, Bollinger Bands
-    technical_analysis: Optional[str]    # "Stock is oversold, potential bounce..."
-    
-    # 3. Strategic Layer (CIO)
-    cio_portfolio_allocation: Optional[str] 
-    cio_reasoning: Optional[str]
-    
-    # 4. Oversight Layer (Risk Manager)
-    risk_score: Optional[int]            # 0-10
-    risk_analysis: Optional[str]
-    risk_approved: bool                  # The Traffic Light
-    
-    # 5. System State
-    revision_count: Annotated[int, operator.add] 
+
+    run_id: str
+    package_date: str
+    requested_package_date: Optional[str]
+    initial_cash: float
+    simulation_mode: str
+    disinformation_policy: str
+
+    daily_packages: Dict[str, Dict[str, Any]]
+    current_portfolio: Dict[str, Any]
+
+    technical_screening: List[Dict[str, Any]]
+    news_screening: List[Dict[str, Any]]
+    fundamental_screening: List[Dict[str, Any]]
+
+    shared_deep_analysis_set: List[str]
+
+    technical_report: str
+    news_report: str
+    fundamental_report: str
+
+    portfolio_decision: Dict[str, Any]
+    trade_preview: Dict[str, Any]
+    stored_decision: Dict[str, Any]
+
     messages: List[str]

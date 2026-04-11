@@ -1,12 +1,9 @@
 import sys
 import os
-import time
 from uuid import uuid4
 from dotenv import load_dotenv
 from termcolor import colored
 from src.integrations.google_genai import resolve_google_genai_settings
-from src.integrations.supabase_logger import SupabaseLogger
-from src.integrations.alpaca_client import AlpacaPaperBroker
 
 # --- 1. SETUP ENVIRONMENT ---
 # Load environment variables (API Keys) from .env file
@@ -25,80 +22,69 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # We import these AFTER setting up the path
 from src.graph import app
 
-# --- 2b. OPTIONAL INTEGRATIONS ---
-RUN_ID = os.getenv("RUN_ID") or str(uuid4())
-supabase_logger = SupabaseLogger()
-alpaca_broker = AlpacaPaperBroker()
-
-# Helper to send each agent update to Supabase without coupling to the graph
-def log_update_to_supabase(run_id, update):
-    if not supabase_logger.enabled:
-        return
-    for agent_name, state_data in update.items():
-        supabase_logger.log_event(
-            run_id=run_id,
-            agent=agent_name,
-            stage="completed",
-            payload=state_data,
-        )
-
 # --- 3. HELPER FUNCTIONS ---
 def print_update(update):
     """
-    Helper to visualize the agent conversation in the terminal.
+    Print short, readable summaries of the baseline workflow steps.
     """
     for agent_name, state_data in update.items():
-        # Header for the agent
         print(colored(f"\n--- {agent_name.upper()} FINISHED ---", "cyan"))
-        
-        # Specific print logic for each agent type
-        if agent_name == "technical_analyst":
-            print(f"Signals: {state_data.get('technical_analysis')}")
-            
-        elif agent_name == "sentiment_analyst":
-            print(f"Sentiment: {state_data.get('sentiment_analysis')}")
-            
-        elif agent_name == "fundamental_analyst":
-            print(f"Analysis: {state_data.get('fundamental_analysis')}")
-            
-        elif agent_name == "cio":
-            print(colored(f"Proposal: {state_data.get('cio_portfolio_allocation')}", "blue"))
-            print(f"Reasoning: {state_data.get('cio_reasoning')}")
-            
-        elif agent_name == "risk_manager":
-            approved = state_data.get('risk_approved')
-            color = "green" if approved else "red"
-            print(colored(f"Decision: {'APPROVED' if approved else 'REJECTED'}", color, attrs=['bold']))
-            print(f"Feedback: {state_data.get('risk_analysis')}")
+        if agent_name == "load_baseline_inputs":
+            packages = state_data.get("daily_packages", {})
+            package_date = state_data.get("package_date")
+            current_portfolio = state_data.get("current_portfolio", {})
+            print(f"Package date: {package_date}")
+            print(
+                "Loaded package counts: "
+                f"technical={packages.get('technical', {}).get('stock_count', 0)}, "
+                f"news={packages.get('news', {}).get('stock_count', 0)}, "
+                f"fundamental={packages.get('fundamental', {}).get('stock_count', 0)}"
+            )
+            print(
+                "Current portfolio: "
+                f"holdings={current_portfolio.get('holdings_count', 0)}, "
+                f"cash_weight={current_portfolio.get('cash_weight', 0):.2%}"
+            )
+        elif agent_name in {"technical_screen", "news_screen", "fundamental_screen"}:
+            key = next(iter(state_data))
+            flagged = [row["ticker"] for row in state_data.get(key, []) if row.get("status") == "flag_for_deep_analysis"]
+            print(f"Flagged tickers ({len(flagged)}): {', '.join(flagged[:10]) if flagged else 'none'}")
+        elif agent_name == "build_shared_deep_analysis_set":
+            deep_set = state_data.get("shared_deep_analysis_set", [])
+            print(f"Shared deep-analysis set ({len(deep_set)}): {', '.join(deep_set) if deep_set else 'none'}")
+        elif agent_name == "technical_deep_analysis":
+            print(state_data.get("technical_report"))
+        elif agent_name == "news_deep_analysis":
+            print(state_data.get("news_report"))
+        elif agent_name == "fundamental_deep_analysis":
+            print(state_data.get("fundamental_report"))
+        elif agent_name == "portfolio_manager":
+            decision = state_data.get("portfolio_decision", {})
+            print(colored(decision.get("summary", ""), "blue"))
+            print(f"Target weights: {decision.get('target_weights', {})}")
+        elif agent_name == "build_trade_preview":
+            preview = state_data.get("trade_preview", {})
+            print(f"IPS status: {preview.get('ips_status')}")
+            print(f"Actions: {preview.get('actions', [])}")
 
 # --- 4. MAIN EXECUTION LOOP ---
 if __name__ == "__main__":
-    print(colored("Starting Hedge Fund Simulation...", "yellow"))
-    
-    # Initialize the "Project Folder" with a ticker
+    print(colored("Starting Baseline Portfolio Workflow...", "yellow"))
+
+    # The baseline keeps the entry inputs small and explicit.
     initial_state = {
-        "ticker": "TSLA",  # Change this to AAPL, NVDA, etc.
-        "as_of": os.getenv("SIM_TIME") or "2024-08-01T00:00:00Z",
-        "revision_count": 0,
-        "messages": []
+        "run_id": os.getenv("RUN_ID") or str(uuid4()),
+        "requested_package_date": os.getenv("PACKAGE_DATE") or os.getenv("SIM_TIME"),
+        "initial_cash": float(os.getenv("INITIAL_CASH", "100000")),
+        "simulation_mode": os.getenv("SIMULATION_MODE", "clean"),
+        "disinformation_policy": os.getenv("DISINFORMATION_POLICY", "append"),
+        "messages": [],
     }
-    
+
     try:
-        # Run the Graph
-        # app.stream executes the nodes one by one
         for update in app.stream(initial_state):
             print_update(update)
-            log_update_to_supabase(RUN_ID, update)
-            # Add a tiny sleep so the logs don't fly by too fast
-            time.sleep(1)
-
-        # Optional: show Alpaca account summary to confirm connectivity
-        if alpaca_broker.enabled:
-            account = alpaca_broker.get_account_summary()
-            if account:
-                print(colored(f"\nAlpaca Paper Account: {account}", "magenta"))
-            
     except Exception as e:
         print(colored(f"Crash detected: {e}", "red"))
-        
-    print(colored("\nSimulation Complete.", "yellow"))
+
+    print(colored("\nBaseline Workflow Complete.", "yellow"))

@@ -23,3 +23,9 @@ For each new entry, append:
 - What did we try and why? Created a shared journal format so agents can leave a compact record of implementation and simulation work.
 - What was the result? The repository now has a standard structure for short iterative logs.
 - What should we do next? Start appending entries whenever we test, change, or evaluate a meaningful part of the system.
+
+### 2026-04-11 - Simplified Baseline Workflow
+
+- What did we try and why? Replaced the earlier single-ticker prototype path with a simpler baseline workflow built around prepared Supabase daily packages, explicit screening steps, one shared deep-analysis set, one portfolio-manager decision, and one deterministic rebalance preview. The goal was to make the architecture easier to understand for business students and closer to the artifact specification.
+- What was the result? The baseline now auto-resolves the latest prepared package date, loads 30 screening rows per analyst from Supabase, initializes portfolio state from cash when no prior run exists, and produces a shared deep-analysis set through explicit screening logic. Local tests passed (`16/16`), the package-loading smoke test succeeded on `2026-04-09`, and a model ping returned `baseline-ok`.
+- What should we do next? Run the full workflow interactively, inspect the first stored portfolio decision in Supabase, and then decide which older experimental modules can be archived because they are no longer on the baseline path.

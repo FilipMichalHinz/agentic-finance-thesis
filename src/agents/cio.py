@@ -1,88 +1,79 @@
-from langchain_core.messages import SystemMessage, HumanMessage
+import json
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from src.baseline_workflow import fallback_target_weights, parse_json_object, sanitize_target_weights
 from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
-from src.state import AgentState  # Note: Absolute import assuming run from root
+from src.integrations.portfolio_logic import PORTFOLIO_IPS
+from src.state import AgentState
 
-# Initialize the "Brain" (Gemini 3.0 Pro)
-# We use a slightly higher temperature (0.4) to allow for creative strategy
 
-def cio_agent_node(state: AgentState):
+def portfolio_manager_node(state: AgentState):
     """
-    The CIO Agent synthesizes data and proposes a trade.
-    It adapts if the Risk Manager rejected the previous attempt.
+    The baseline Portfolio Manager is the single final decision-maker.
+
+    It reads the three analyst reports and proposes target weights that the
+    deterministic preview step can translate into action-ready trades.
     """
-    llm = build_default_agent_llm(temperature=0.4)
-    # 1. Unpack the State (Read the inputs)
-    ticker = state["ticker"]
-    sentiment = state.get("sentiment_analysis", "No Data")
-    fundamentals = state.get("fundamental_analysis", "No Data")
-    technicals = state.get("technical_analysis", "No Data")
-    
-    # 2. Check for Rejection History
-    # If the Risk Manager said "NO", we need to know why.
-    risk_feedback = state.get("risk_analysis", "None")
-    revision_count = state.get("revision_count", 0)
-    
-    # 3. Define the Persona
-    system_prompt = """You are the Chief Investment Officer (CIO) of a top-tier hedge fund.
-    Your GOAL: Maximize Alpha (returns) while strictly adhering to risk feedback.
-    
-    INPUTS:
-    - You have reports from Sentiment, Fundamental, and Technical analysts.
-    - You may have REJECTION FEEDBACK from the Risk Manager.
-    
-    TASK:
-    - Synthesize the signals into a coherent trade decision (Buy, Sell, or Hold).
-    - If this is a RETRY (previous rejection), you MUST adjust your strategy to satisfy the Risk Manager.
-    - Be decisive but professional.
-    
-    OUTPUT FORMAT:
-    Provide a JSON-compatible response (do not wrap in ```json``` blocks if possible):
-    {
-      "allocation": "Buy 5% of Portfolio" or "Sell entire position",
-      "reasoning": "Your concise logic here..."
+
+    deep_set = state.get("shared_deep_analysis_set", [])
+    if not deep_set:
+        return {
+            "portfolio_decision": {
+                "summary": "No stocks were flagged for deeper analysis, so the baseline stays in cash.",
+                "target_weights": {"CASH": 1.0},
+                "focus_tickers": [],
+                "raw_response": "",
+            }
+        }
+
+    llm = build_default_agent_llm(temperature=0)
+    system_prompt = """You are the Portfolio Manager in a simple baseline workflow.
+
+Your job is to turn three analyst reports into one target portfolio.
+Keep the portfolio easy to understand:
+- long only
+- use only the tickers from the shared deep-analysis set
+- each stock weight must be <= 0.15
+- include CASH
+- prefer 3 to 5 active stock positions when the evidence supports it
+
+Return strict JSON with this shape:
+{
+  "summary": "short explanation",
+  "focus_tickers": ["TICKER1", "TICKER2"],
+  "target_weights": {
+    "TICKER1": 0.15,
+    "TICKER2": 0.15,
+    "CASH": 0.70
+  }
+}
+"""
+    user_message = {
+        "package_date": state["package_date"],
+        "ips": PORTFOLIO_IPS,
+        "current_portfolio": state["current_portfolio"],
+        "shared_deep_analysis_set": deep_set,
+        "technical_report": state.get("technical_report", ""),
+        "news_report": state.get("news_report", ""),
+        "fundamental_report": state.get("fundamental_report", ""),
     }
-    """
-    
-    # 4. Construct the User Prompt
-    if revision_count > 0:
-        # This is a "Retry" scenario
-        user_message = f"""
-        WARNING: Your previous trade was REJECTED by Risk Management.
-        Attempts made: {revision_count}
-        
-        RISK MANAGER FEEDBACK: "{risk_feedback}"
-        
-        You must propose a NEW strategy for {ticker} that addresses this feedback immediately.
-        
-        Current Market Data:
-        - Sentiment: {sentiment}
-        - Fundamentals: {fundamentals}
-        - Technicals: {technicals}
-        """
-    else:
-        # This is a fresh trade
-        user_message = f"""
-        Please generate a trade proposal for {ticker} based on the following analysis:
-        
-        - Sentiment Analyst: {sentiment}
-        - Fundamental Analyst: {fundamentals}
-        - Technical Analyst: {technicals}
-        """
-
-    # 5. Invoke the AI
     messages = [
         SystemMessage(content=system_prompt),
-        HumanMessage(content=user_message)
+        HumanMessage(content=json.dumps(user_message, indent=2, default=str)),
     ]
-    
     response = llm.invoke(messages)
-    
-    # 6. Parse the Output (Simple Logic for now)
-    # In a full build, we would use LangChain's JsonOutputParser
     content = response_content_to_text(response.content)
-    
-    # Return the updates to the state
+    parsed = parse_json_object(content) or {}
+    target_weights = sanitize_target_weights(parsed.get("target_weights"), deep_set)
+    if target_weights == {"CASH": 1.0} and deep_set:
+        target_weights = fallback_target_weights(deep_set)
+
     return {
-        "cio_portfolio_allocation": content, # Ideally parsed to just the action
-        "cio_reasoning": content             # ideally parsed to just the logic
+        "portfolio_decision": {
+            "summary": parsed.get("summary") or content,
+            "focus_tickers": parsed.get("focus_tickers") or deep_set[:5],
+            "target_weights": target_weights,
+            "raw_response": content,
+        }
     }

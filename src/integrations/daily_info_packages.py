@@ -92,6 +92,31 @@ def _fetch_single_context_row(view_name: str, package_date: str) -> Optional[Dic
     return rows[0]
 
 
+def get_latest_available_package_date() -> Optional[str]:
+    """
+    Return the most recent package date present in the prepared screening views.
+
+    We use the technical view as the reference because every baseline run needs it
+    and it is populated per-stock like the other two screening views.
+    """
+
+    supabase = _get_supabase_client()
+    response = (
+        supabase.table("daily_technical_analyst_screening_view")
+        .select("package_date")
+        .order("package_date", desc=True)
+        .limit(100)
+        .execute()
+    )
+    rows = response.data or []
+    seen = []
+    for row in rows:
+        package_date = row.get("package_date")
+        if package_date and package_date not in seen:
+            seen.append(package_date)
+    return seen[0] if seen else None
+
+
 def load_daily_agent_package(
     agent: AgentName,
     package_date: str,
