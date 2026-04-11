@@ -12,22 +12,22 @@ from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from google import genai
-from google.genai import types
 from sec_edgar_downloader import Downloader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 try:
+    from src.integrations.google_genai import build_genai_client, embed_texts
     from src.ticker_universes import DOW_30_TICKERS
 except ModuleNotFoundError:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.integrations.google_genai import build_genai_client, embed_texts
     from src.ticker_universes import DOW_30_TICKERS
 
 # --- 1. CONFIGURATION ---
 load_dotenv()
 
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"), http_options={"timeout": 300000})
+client = build_genai_client(timeout_seconds=300)
 
 DOWNLOAD_FOLDER = "sec_data_cache"
 USER_AGENT_NAME = "AgenticFinanceThesis"
@@ -52,18 +52,13 @@ def get_batch_embeddings(texts):
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            # New Gemini API supports list of contents for batching
-            response = client.models.embed_content(
-                model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
-                contents=texts,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="RETRIEVAL_DOCUMENT",
-                ),
+            return embed_texts(
+                client,
+                texts,
+                model_name=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=768,
             )
-            # Extract list of vectors
-            return [e.values for e in response.embeddings]
-            
         except (httpx.ReadTimeout, httpx.TimeoutException, Exception) as e:
             wait_time = (attempt + 1) * 3 + random.uniform(0.5, 1.5)
             print(f"      ⚠️ API Error (Attempt {attempt+1}/{max_retries}): {e} - Retrying in {wait_time:.1f}s...")

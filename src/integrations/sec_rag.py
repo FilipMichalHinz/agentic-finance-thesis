@@ -1,8 +1,8 @@
-import os
 from typing import List, Dict, Optional
 
 from dotenv import load_dotenv
 
+from src.integrations.google_genai import build_genai_client, embed_texts
 from src.integrations.supabase_client import get_supabase_client
 
 _MODEL = None
@@ -21,11 +21,7 @@ def _get_gemini_client(timeout_seconds: int):
     global _GEMINI_CLIENT
     if _GEMINI_CLIENT is None:
         load_dotenv()
-        google_key = os.getenv("GOOGLE_API_KEY")
-        if not google_key:
-            raise RuntimeError("Missing GOOGLE_API_KEY")
-        from google import genai
-        _GEMINI_CLIENT = genai.Client(api_key=google_key, http_options={"timeout": int(timeout_seconds * 1000)})
+        _GEMINI_CLIENT = build_genai_client(timeout_seconds=timeout_seconds)
     return _GEMINI_CLIENT
 
 
@@ -43,17 +39,15 @@ def retrieve_filings(
 ) -> List[Dict]:
     provider_norm = provider.strip().lower()
     if provider_norm == "gemini":
-        from google.genai import types
         client = _get_gemini_client(timeout_seconds)
-        response = client.models.embed_content(
-            model=gemini_model,
-            contents=[query],
-            config=types.EmbedContentConfig(
-                output_dimensionality=768,
-                task_type="RETRIEVAL_QUERY",
-            ),
+        vectors = embed_texts(
+            client,
+            [query],
+            model_name=gemini_model,
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=768,
         )
-        vector = response.embeddings[0].values
+        vector = vectors[0]
     else:
         model = _get_model(model_name, device)
         vector = model.encode(

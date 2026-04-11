@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.integrations.google_genai import build_default_agent_llm
 from src.state import AgentState
 
 
@@ -80,10 +80,7 @@ def calculate_indicators(df: pd.DataFrame) -> dict:
 def technical_analyst_node(state: AgentState):
     ticker = state["ticker"]
     
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        temperature=0
-    )
+    llm = build_default_agent_llm(temperature=0)
 
     try:
         df = fetch_price_data(ticker)

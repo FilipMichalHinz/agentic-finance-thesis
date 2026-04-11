@@ -3,12 +3,19 @@ import argparse
 import json
 import os
 import random
+import sys
 import time
+from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv
 from postgrest.exceptions import APIError
 from supabase import create_client, Client
+
+try:
+    from src.integrations.google_genai import build_genai_client, embed_texts
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.integrations.google_genai import build_genai_client, embed_texts
 
 
 def parse_args():
@@ -59,16 +66,13 @@ def get_batch_embeddings_gemini(client, model_name, texts, max_retries, sleep_se
         return []
     for attempt in range(max_retries):
         try:
-            from google.genai import types
-            response = client.models.embed_content(
-                model=model_name,
-                contents=texts,
-                config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="RETRIEVAL_DOCUMENT",
-                ),
+            return embed_texts(
+                client,
+                texts,
+                model_name=model_name,
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=768,
             )
-            return [e.values for e in response.embeddings]
         except Exception as e:
             status_code = getattr(e, "status_code", None)
             if status_code is None:
@@ -172,11 +176,7 @@ def main():
 
     embed_fn = None
     if args.provider == "gemini":
-        google_key = os.getenv("GOOGLE_API_KEY")
-        if not google_key:
-            raise SystemExit("Set GOOGLE_API_KEY")
-        from google import genai  # Local import to avoid hard dependency for local mode
-        client = genai.Client(api_key=google_key, http_options={"timeout": int(args.timeout_seconds * 1000)})
+        client = build_genai_client(timeout_seconds=args.timeout_seconds)
         embed_fn = lambda texts: get_batch_embeddings_gemini(  # noqa: E731
             client, args.gemini_model, texts, args.max_retries, args.sleep_seconds
         )

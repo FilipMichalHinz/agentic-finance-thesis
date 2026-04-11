@@ -76,11 +76,30 @@ and safe to rerun. You can use Gemini (default) or a local model.
 
 ### Required
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- For Gemini: `GOOGLE_API_KEY`
+- For Gemini Developer API: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+- For Vertex AI: `GOOGLE_GENAI_USE_VERTEXAI=true`, `GOOGLE_CLOUD_PROJECT`, optional `GOOGLE_CLOUD_LOCATION`, and either ADC (recommended) or `VERTEX_API_KEY`
 - For local: `sentence-transformers` installed (model downloads on first run)
 
 ### Example
 ```bash
+python scripts/embed_chunks.py --ticker MSFT --limit 50
+```
+
+### Vertex AI example
+```bash
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GOOGLE_CLOUD_LOCATION="us-central1"
+gcloud auth application-default login
+python scripts/embed_chunks.py --ticker MSFT --limit 50
+```
+
+### Vertex AI with explicit API key
+```bash
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GOOGLE_CLOUD_LOCATION="us-central1"
+export VERTEX_API_KEY="your-vertex-api-key"
 python scripts/embed_chunks.py --ticker MSFT --limit 50
 ```
 

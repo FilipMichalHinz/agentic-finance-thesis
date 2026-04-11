@@ -11,7 +11,7 @@ supabase
 sentence-transformers
 torch
 langchain-core
-langchain-google-genai
+langchain-google-genai>=4.0.0
 langgraph
 numpy
 pandas

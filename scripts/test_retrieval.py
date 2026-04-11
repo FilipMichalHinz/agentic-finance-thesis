@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
+
+try:
+    from src.integrations.google_genai import build_genai_client, embed_texts
+except ModuleNotFoundError:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from src.integrations.google_genai import build_genai_client, embed_texts
 
 
 def parse_args():
@@ -32,21 +40,15 @@ def main():
 
     supabase: Client = create_client(supabase_url, supabase_key)
     if args.provider == "gemini":
-        google_key = os.getenv("GOOGLE_API_KEY")
-        if not google_key:
-            raise SystemExit("Set GOOGLE_API_KEY")
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=google_key)
-        response = client.models.embed_content(
-            model=args.gemini_model,
-            contents=[args.query],
-            config=types.EmbedContentConfig(
-                output_dimensionality=768,
-                task_type="RETRIEVAL_QUERY",
-            ),
+        client = build_genai_client(timeout_seconds=300)
+        vectors = embed_texts(
+            client,
+            [args.query],
+            model_name=args.gemini_model,
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=768,
         )
-        query_vector = response.embeddings[0].values
+        query_vector = vectors[0]
     else:
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(args.model, device=args.device)

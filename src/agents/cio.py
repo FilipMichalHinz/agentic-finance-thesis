@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.integrations.google_genai import build_default_agent_llm
 from src.state import AgentState  # Note: Absolute import assuming run from root
 
 # Initialize the "Brain" (Gemini 3.0 Pro)
@@ -10,10 +10,7 @@ def cio_agent_node(state: AgentState):
     The CIO Agent synthesizes data and proposes a trade.
     It adapts if the Risk Manager rejected the previous attempt.
     """
-    llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
-    temperature=0.4
-)
+    llm = build_default_agent_llm(temperature=0.4)
     # 1. Unpack the State (Read the inputs)
     ticker = state["ticker"]
     sentiment = state.get("sentiment_analysis", "No Data")

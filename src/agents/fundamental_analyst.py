@@ -1,6 +1,6 @@
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.integrations.google_genai import build_default_agent_llm
 from src.state import AgentState
 from src.tools.sec_rag_tool import search_filings
 from src.integrations.tool_runner import run_with_tools
@@ -36,10 +36,7 @@ def fundamental_analyst_node(state: AgentState):
     ticker = state["ticker"]
     as_of = state.get("as_of") or "2024-08-01T00:00:00Z"
     
-    llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
-    temperature=0
-)
+    llm = build_default_agent_llm(temperature=0)
     try:
         metrics = get_fundamentals(ticker)
         metrics_str = str(metrics)

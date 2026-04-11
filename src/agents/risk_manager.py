@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.integrations.google_genai import build_default_agent_llm
 from src.state import AgentState
 
 # Initialize the "Reasoning Model" (Gemini 3.0 Pro)
@@ -11,10 +11,7 @@ def risk_manager_node(state: AgentState):
     It acts as a 'Compliance Firewall'.
     """
     
-    llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
-    temperature=0.1
-)
+    llm = build_default_agent_llm(temperature=0.1)
 
     # 1. Gather the Evidence
     ticker = state["ticker"]

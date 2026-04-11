@@ -1,6 +1,6 @@
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.integrations.google_genai import build_default_agent_llm
 from src.state import AgentState
 
 
@@ -22,10 +22,7 @@ def get_market_news(ticker: str):
 def sentiment_analyst_node(state: AgentState):
     ticker = state["ticker"]
     
-    llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0
-)
+    llm = build_default_agent_llm(temperature=0)
 
     # 1. Harvest Data
     try:

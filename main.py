@@ -4,14 +4,17 @@ import time
 from uuid import uuid4
 from dotenv import load_dotenv
 from termcolor import colored
+from src.integrations.google_genai import resolve_google_genai_settings
 from src.integrations.supabase_logger import SupabaseLogger
 from src.integrations.alpaca_client import AlpacaPaperBroker
 
 # --- 1. SETUP ENVIRONMENT ---
 # Load environment variables (API Keys) from .env file
 load_dotenv()
-if not os.getenv("GOOGLE_API_KEY"):
-    print(colored("CRITICAL ERROR: GOOGLE_API_KEY not found in environment!", "red"))
+try:
+    resolve_google_genai_settings()
+except RuntimeError as exc:
+    print(colored(f"CRITICAL ERROR: {exc}", "red"))
     print("Please check your .env file.")
     sys.exit(1)
 # Add the current directory to Python's path so it can find the 'src' folder
