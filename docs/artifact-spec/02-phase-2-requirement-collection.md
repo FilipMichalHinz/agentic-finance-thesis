@@ -25,22 +25,16 @@ In the baseline configuration, analysts shall work independently and shall not s
 The system shall define screening outcomes using the statuses:
 
 * no issue  
-* monitor  
-* flag for deeper analysis
+* flag for deep analysis
 
 The system shall create one shared deep-analysis set for each trading day.
 
 The shared deep-analysis set shall consist of:
 
 * current holdings  
-* active candidate-list names  
 * the union of newly flagged names from any analyst
 
-The system shall treat current holdings as requiring regular deeper review.
-
-The system shall maintain a dynamic candidate list rather than a fixed static shortlist.
-
-Each analyst may nominate up to 3 candidate stocks per day for portfolio consideration.
+The system shall treat current holdings as always included in the shared deep-analysis set for that day.
 
 The portfolio manager shall remain the final decision-maker and shall determine the final target portfolio and trade actions.
 
@@ -111,14 +105,14 @@ The technical analyst input shall include selected technical indicator values as
 The fundamental analyst input shall include:
 
 * the latest available point-in-time fundamental data  
-* selected changes from prior available values  
+* the latest filed fundamental period end date  
+* the corresponding filing date used as the visibility gate  
 * filing-related flags where available  
 * relevant macroeconomic release context
 
 The news analyst input shall include, for each stock:
 
 * one selected headline  
-* one summary of that selected news item  
 * the daily news count
 
 The news analyst may also receive relevant market-wide or macro-level news context, but macro news shall not be manipulated in the initial artifact version.
@@ -126,6 +120,8 @@ The news analyst may also receive relevant market-wide or macro-level news conte
 The system shall store and access current portfolio state each day, including:
 
 * holdings  
+* quantities  
+* position values  
 * weights  
 * cash  
 * recent actions
@@ -194,7 +190,7 @@ The portfolio output shall support paper trading by including the fields needed 
 
 The system shall support explicit no-action outputs.
 
-The system shall store the trigger reason for candidate selection or deeper analysis.
+The system shall store the trigger reason for deeper analysis.
 
 Weekly analyst summaries shall be generated every 5 trading days and stored as structured outputs.
 
@@ -277,4 +273,4 @@ The design shall support a backtest horizon of either 180 or 365 trading days, d
 
 11. **Phase 2 summary**
 
-The artifact requirements define a daily portfolio-level decision system with mandatory daily outputs, including no-action days. The system uses an end-of-day daily package for the full DJIA universe and then performs deeper analysis on a shared stock set consisting of holdings, active candidates, and newly flagged names. Each analyst may nominate up to 3 candidates per day, but the portfolio manager remains the final decision-maker. Disinformation is injected only through stock-specific news provided to the news analyst. Persistent continuity is handled through structured notes and summaries stored in the database, using current snapshots plus history rather than full vector RAG by default. All outputs and interactions must be structured, logged, and comparable across the four configurations. Decisions are made after day t close and executed at day t+1 open.
+The artifact requirements define a daily portfolio-level decision system with mandatory daily outputs, including no-action days. The system uses an end-of-day daily package for the full DJIA universe and then performs deeper analysis on a shared stock set consisting of current holdings and newly flagged names. The portfolio manager remains the final decision-maker. Disinformation is injected only through stock-specific news provided to the news analyst. Persistent continuity is handled through structured notes and summaries stored in the database, using current snapshots plus history rather than full vector RAG by default. All outputs and interactions must be structured, logged, and comparable across the four configurations. Decisions are made after day t close and executed at day t+1 open.

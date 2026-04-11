@@ -103,12 +103,11 @@ Peer visibility occurs only in the debate configurations. This is important beca
 One daily system cycle is defined as follows:
 
 1. The system loads stored daily data for the current trading day.  
-2. The system loads the current portfolio state, including existing holdings, weights, available cash, and recent actions.  
+2. The system loads the current portfolio state, including existing holdings, quantities, position values, weights, available cash, and recent actions.  
 3. Each analyst performs a light screening of the full DJIA universe using the daily information package.  
 4. Each analyst assigns screening outcomes to stocks using the statuses:  
    * no issue  
-   * monitor  
-   * flag for deeper analysis  
+   * flag for deep analysis  
 5. The system defines one shared deep-analysis set for the day.  
 6. The analysts perform deeper analysis on that shared stock set and produce initial full reports.  
 7. In Multi-Agent Debate configurations, analysts review peer reports and submit revised final reports with response fields.  
@@ -125,9 +124,7 @@ The screening statuses mean:
 
 1. No issue  
     The stock does not require further action from that analyst on that day.  
-2. Monitor  
-    The stock is noteworthy and may remain relevant for watchlist or candidate purposes, but it does not automatically enter deeper analysis on that day.  
-3. Flag for deeper analysis  
+2. Flag for deep analysis  
     The stock should be considered for inclusion in the shared deep-analysis set for that day.  
 4. Shared deep-analysis set
 
@@ -138,20 +135,11 @@ Instead, after screening, the system creates one shared deep-analysis set for th
 The shared deep-analysis set is built from:
 
 * current holdings  
-* active candidate-list names  
 * the union of newly flagged names from any analyst
 
 This preserves full-universe awareness while keeping the system manageable and consistent across configurations.
 
-13. **Candidate logic**
-
-The candidate list is a persistent and dynamic object. It is not the same thing as same-day analyst nominations.
-
-The system may keep a stock on the candidate list across days, remove it later, or add new names over time.
-
-Separately, each analyst may nominate up to 3 candidate stocks per day for portfolio consideration. These nominations are part of the daily analyst output, but they do not determine portfolio changes by themselves. The Portfolio Manager remains responsible for deciding whether those nominations affect the target portfolio.
-
-14. **Initial reports**
+13. **Initial reports**
 
 An initial report does not mean a shallow report. It means the first full analyst report written:
 
@@ -163,7 +151,7 @@ The initial report is already based on:
 * the daily information package  
 * deeper retrieved data for the shared deep-analysis set  
 * the agent’s own relevant prior notes or summaries where allowed  
-15. **Challenger logic**
+14. **Challenger logic**
 
 The challenger should be implemented as a distinct workflow mechanism rather than as a hidden prompt change.
 
@@ -173,7 +161,7 @@ Its purpose is to identify suspicious, weak, or potentially flawed reasoning bef
 
 The challenged analyst should have one chance to respond or revise before the final decision is made.
 
-16. **Multi-Agent Debate logic**
+15. **Multi-Agent Debate logic**
 
 Multi-Agent Debate should not be implemented as free-form open conversation. That would be harder to control, harder to log, and harder to defend in the thesis.
 
@@ -192,7 +180,7 @@ The response fields should show, at minimum:
 
 There should be no majority vote among analysts, because the final decision authority belongs to the Portfolio Manager.
 
-17. **Combined configuration logic**
+16. **Combined configuration logic**
 
 When Challenger and Multi-Agent Debate are both enabled, the order should be:
 
@@ -208,13 +196,13 @@ When Challenger and Multi-Agent Debate are both enabled, the order should be:
 
 This keeps the combined configuration consistent with the other three configurations.
 
-18. **Weekly summaries**
+17. **Weekly summaries**
 
 The system remains daily, but every five trading days each analyst should generate a short structured weekly summary.
 
 These summaries are stored and can later be used as internal context in future daily decision cycles. This allows the system to build continuity and broader context without changing the operating frequency from daily to weekly.
 
-19. **Portfolio output**
+18. **Portfolio output**
 
 The final daily output should include both:
 
@@ -238,7 +226,7 @@ The action-ready trading output should include:
 
 This allows the decision output to be used both for portfolio comparison and for simulated execution.
 
-20. **Run definition**
+19. **Run definition**
 
 One daily decision cycle is the core operational unit of the artifact.
 
@@ -246,7 +234,7 @@ One full run is one complete configuration executed across the full backtesting 
 
 This means the thesis can compare four full runs, one for each configuration, while also analyzing what happens at the level of individual daily cycles.
 
-21. **Simplified investment policy statement**
+20. **Simplified investment policy statement**
 
 At this stage, the system should use a simple and defendable investment policy framework.
 
@@ -265,4 +253,4 @@ These are initial design defaults and can still be refined later if needed.
 
 22. **Phase 1 summary**
 
-The artifact is a multi-agent autonomous paper-trading portfolio management system for the DJIA 30\. It operates on a daily basis in a controlled backtesting environment. It constructs an initial portfolio on Day 1 and manages that portfolio from Day 2 onward. The Portfolio Manager is always the final decision-maker. The four configurations differ only by whether a portfolio-manager-led challenger stage and multi-agent debate are enabled. The system uses structured outputs, allows cash holdings, uses a screening layer followed by a shared deep-analysis set, and produces both target allocations and action-ready trade instructions. One daily cycle is the operational unit, while one full backtest episode for one configuration is the experimental run.
+The artifact is a multi-agent autonomous paper-trading portfolio management system for the DJIA 30\. It operates on a daily basis in a controlled backtesting environment. It constructs an initial portfolio on Day 1 and manages that portfolio from Day 2 onward. The Portfolio Manager is always the final decision-maker. The four configurations differ only by whether a portfolio-manager-led challenger stage and multi-agent debate are enabled. The system uses structured outputs, allows cash holdings, uses a screening layer followed by a shared deep-analysis set built from current holdings and newly flagged names, and produces both target allocations and action-ready trade instructions. One daily cycle is the operational unit, while one full backtest episode for one configuration is the experimental run.

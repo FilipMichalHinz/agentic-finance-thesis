@@ -28,20 +28,12 @@ Conceptual mapping:
 Fields mentioned in Phase 4 that are not stored yet and should be derived or precomputed from this table:
 
 * previous close  
-* open vs previous close change  
-* open vs close change  
-* close vs previous close change  
-* nominal daily price change  
-* percentage daily price change
+* close vs open percentage change  
+* close vs previous close percentage change
 
 Suggested technical names for prepared package fields:
 
-* `prev_price_close`  
-* `chg_open_vs_prev_close`  
-* `chg_open_vs_prev_close_pct`  
-* `chg_close_vs_open`  
 * `chg_close_vs_open_pct`  
-* `chg_close_vs_prev_close`  
 * `chg_close_vs_prev_close_pct`
 
 This table is used by:
@@ -93,24 +85,17 @@ Conceptual mapping:
 
 Fields mentioned in Phase 4 that are not stored yet and should be derived or precomputed:
 
-* day-to-day change in SMA  
 * day-to-day change in EMA  
 * day-to-day change in RSI  
 * day-to-day change in ADX  
-* technical signal flags  
-* technical abnormality flags
+* day-to-day change in standard deviation
 
 Suggested technical names for prepared package fields:
 
-* `chg_sma`  
-* `chg_sma_pct`  
 * `chg_ema`  
-* `chg_ema_pct`  
 * `chg_rsi`  
-* `chg_williams`  
 * `chg_adx`  
-* `technical_trigger_flag`  
-* `technical_trigger_reason`
+* `chg_standarddeviation`
 
 This table is used by:
 
@@ -149,7 +134,8 @@ Current columns:
 * `raw_payload`  
 * `reported_currency`  
 * `debt_to_assets_ratio`  
-* `interest_coverage_ratio`
+* `interest_coverage_ratio`  
+* `filing_date`
 
 Conceptual mapping:
 
@@ -178,33 +164,23 @@ Conceptual mapping:
 * enterprise value multiple → `enterprise_value_multiple`  
 * dividend yield → `dividend_yield`  
 * reported currency → `reported_currency`  
-* raw vendor payload → `raw_payload`
+* raw vendor payload → `raw_payload`  
+* filing date used for point-in-time visibility → `filing_date`
 
 Fields mentioned in Phase 4 that are not stored yet and should be derived or precomputed carefully:
 
-* change from previous available current ratio  
-* change from previous available gross margin  
-* change from previous available debt to equity  
-* filing-related event flags  
-* fundamental trigger flags
+* filing-related event flags for the package day  
+* the selected visible period metadata for the daily package row
 
 Suggested technical names for prepared package fields:
 
-* `prev_current_ratio`  
-* `chg_current_ratio`  
-* `prev_gross_margin`  
-* `chg_gross_margin`  
-* `prev_operating_margin`  
-* `chg_operating_margin`  
-* `prev_net_margin`  
-* `chg_net_margin`  
-* `prev_debt_to_equity`  
-* `chg_debt_to_equity`  
-* `fundamental_trigger_flag`  
-* `fundamental_trigger_reason`
+* `fundamental_period_end_date`  
+* `fundamental_filing_date`  
+* `filing_flag`  
+* `filing_form`
 
 Important note:  
- These changes should be based on the previous available reported value, not forced into fake daily movement.
+ A fundamental period should only be visible in a daily package if `filing_date <= package_date`. The package should not surface a newer period before it was filed.
 
 This table is used by:
 
@@ -243,21 +219,14 @@ Conceptual mapping:
 
 Fields mentioned in Phase 4 that are not stored yet and should be derived or precomputed:
 
-* selected news-of-the-day  
+* latest news-of-the-day  
 * daily news count per stock  
-* latest-news-before-cutoff flag  
-* news trigger flag
 
 Suggested technical names for prepared package fields:
 
-* `selected_news_id`  
-* `selected_news_title`  
-* `selected_news_content`  
-* `selected_news_published_at`  
-* `daily_news_count`  
-* `is_latest_news_of_day`  
-* `news_trigger_flag`  
-* `news_trigger_reason`
+* `latest_news_id`  
+* `latest_news_title`  
+* `daily_news_count`
 
 This table is used by:
 
@@ -291,16 +260,15 @@ Conceptual mapping:
 
 Fields mentioned in Phase 4 that are not stored yet and should be derived or precomputed:
 
-* selected general-news item for the day  
-* daily general-news count  
-* market-news trigger flag if you later want one
+* latest general-news item for the day  
+* daily general-news count
 
 Suggested technical names for prepared package fields:
 
-* `selected_general_news_id`  
-* `selected_general_news_title`  
-* `selected_general_news_content`  
-* `selected_general_news_published_at`  
+* `latest_general_news_id`  
+* `latest_general_news_title`  
+* `latest_general_news_content`  
+* `latest_general_news_published_at`  
 * `daily_general_news_count`
 
 This table is used by:
@@ -407,13 +375,12 @@ How it should be used:
 What this table is not:
 
 * it is not the general memory store for the whole system  
-* it is not the same as analyst notes, weekly summaries, candidate memory, or portfolio history
+* it is not the same as analyst notes, weekly summaries, or portfolio history
 
 Those memory and continuity artifacts should later live in separate artifact tables such as:
 
 * analyst notes  
 * weekly summaries  
-* candidate state  
 * portfolio history  
 * run logs
 
@@ -501,7 +468,6 @@ Fundamental Analyst can currently use:
 Portfolio Manager will not mainly use raw source columns. It will mainly use:
 
 * analyst outputs  
-* candidate state  
 * portfolio state  
 * notes and summaries  
 * challenge outputs  
@@ -516,26 +482,24 @@ From the current tables, the biggest missing prepared-package fields are:
 From market prices:
 
 * previous close  
-* open vs previous close change  
-* close vs open change  
-* close vs previous close change
+* close vs open percentage change  
+* close vs previous close percentage change
 
 From technicals:
 
-* day-to-day indicator changes  
-* indicator trigger flags
+* selected day-to-day indicator changes
 
 From fundamentals:
 
-* prior available value comparisons  
-* filing trigger flags  
-* fundamental trigger flags
+* daily package selection gated by `filing_date`  
+* package-level `fundamental_period_end_date`  
+* package-level `fundamental_filing_date`  
+* filing flags for the package day
 
 From stock news:
 
 * one-news-of-the-day selection  
 * daily news count  
-* selected news summary field if you want a package-specific cleaned summary
 
 From general news:
 
@@ -555,74 +519,99 @@ To keep the technical names clean, I would recommend package-layer columns like:
 Shared package keys:
 
 * `package_date`  
-* `ticker`  
-* `dataset_version`  
-* `scenario_id`  
-* `manipulation_mode`
+* `ticker`
 
 Price package fields:
 
-* `price_open`  
-* `price_high`  
-* `price_low`  
 * `price_close`  
 * `volume`  
-* `prev_price_close`  
-* `chg_open_vs_prev_close`  
-* `chg_open_vs_prev_close_pct`  
-* `chg_close_vs_open`  
 * `chg_close_vs_open_pct`  
-* `chg_close_vs_prev_close`  
-* `chg_close_vs_prev_close_pct`  
-* `chg_williams`
+* `chg_close_vs_prev_close_pct`
 
 Technical package fields:
 
-* `sma`  
-* `ema`  
-* `wma`  
-* `dema`  
-* `tema`  
-* `rsi`  
-* `standarddeviation`  
-* `williams`  
-* `adx`  
-* `chg_sma`  
 * `chg_ema`  
 * `chg_rsi`  
 * `chg_adx`  
-* `technical_trigger_flag`  
-* `technical_trigger_reason`
+* `chg_standarddeviation`
 
 Fundamental package fields:
 
-* normalized ratio columns  
+* `fundamental_period_end_date`  
+* `fundamental_filing_date`  
 * `filing_flag`  
 * `filing_form`  
-* `latest_macro_indicator_name`  
-* `latest_macro_indicator_value`  
-* `fundamental_trigger_flag`  
-* `fundamental_trigger_reason`
+* `price_to_earnings`  
+* `price_to_sales`
 
 News package fields:
 
-* `selected_news_id`  
-* `selected_news_title`  
-* `selected_news_content`  
-* `selected_news_published_at`  
+* `latest_news_id`  
+* `latest_news_title`  
 * `daily_news_count`  
-* `selected_general_news_id`  
-* `selected_general_news_title`  
-* `selected_general_news_content`  
-* `selected_general_news_published_at`
+* news shared-context fields kept outside the per-stock package:
+  * `latest_general_news_id`
+  * `latest_general_news_title`
+  * `latest_general_news_content`
+  * `latest_general_news_published_at`
+  * `daily_general_news_count`
 
-Manipulated-news package fields:
+Fundamental shared-context fields kept outside the per-stock package:
 
-* `original_news_id`  
-* `original_title`  
-* `original_content`  
-* `manipulated_title`  
-* `manipulated_content`  
-* `is_fake_news`  
-* `severity_label`  
-* `scenario_id`
+* `inflation_rate`
+
+12. **Current prepared-view mapping**
+
+The current prepared package layer is best understood through the final analyst-facing views.
+
+The Technical Analyst screening view should expose:
+
+* `package_date`  
+* `ticker`  
+* `price_close`  
+* `volume`  
+* `chg_close_vs_prev_close_pct`  
+* `chg_close_vs_open_pct`  
+* `chg_ema`  
+* `chg_rsi`  
+* `chg_adx`  
+* `chg_standarddeviation`
+
+The Fundamental Analyst screening view should expose:
+
+* `package_date`  
+* `ticker`  
+* `price_close`  
+* `chg_close_vs_prev_close_pct`  
+* `chg_close_vs_open_pct`  
+* `fundamental_period_end_date`  
+* `fundamental_filing_date`  
+* `filing_flag`  
+* `filing_form`  
+* `price_to_earnings`  
+* `price_to_sales`
+
+The News Analyst screening view should expose:
+
+* `package_date`  
+* `ticker`  
+* `price_close`  
+* `chg_close_vs_prev_close_pct`  
+* `chg_close_vs_open_pct`  
+* `latest_news_id`  
+* `latest_news_title`  
+* `daily_news_count`
+
+The News shared-context view should expose one row per day with:
+
+* `package_date`  
+* `latest_general_news_id`  
+* `latest_general_news_title`  
+* `latest_general_news_content`  
+* `latest_general_news_published_at`  
+* `daily_general_news_count`
+
+The Fundamental shared-context view should expose one row per day with:
+
+* `package_date`  
+* `inflation_rate`

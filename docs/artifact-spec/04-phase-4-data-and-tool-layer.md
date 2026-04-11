@@ -37,7 +37,6 @@ This design is preferable to recomputing the full package at runtime because it 
 
 * reproducibility  
 * reuse across configurations  
-* reuse across clean and disinformed dataset variants  
 * runtime efficiency  
 * auditability of what each agent saw on a given day
 
@@ -114,21 +113,11 @@ The prepared package layer should be implemented as Supabase tables populated by
 
 These prepared tables should contain the daily screening inputs that are delivered to the agents during runtime.
 
-The prepared package layer should be versionable so that the same package set can be reused across:
-
-* all four configurations  
-* clean dataset runs  
-* disinformed dataset runs  
-* different scenario IDs or simulation variants
-
 The prepared package tables may be separated by role or merged into one structured daily package table, depending on implementation convenience. In either case, they should support fields such as:
 
 * package date  
 * ticker  
-* dataset version  
-* scenario ID  
-* manipulation mode  
-* package type or agent role
+* role-specific prepared fields
 
 
 5. **Precomputed daily package fields**
@@ -139,19 +128,11 @@ This is important because the daily package is primarily a screening layer, and 
 
 The prepared package layer should therefore include, where appropriate:
 
-* price change from previous close to current open  
-* price change from open to close  
-* close-to-close price change  
-* price changes in nominal terms and/or percentage terms  
-* day-to-day changes in technical indicator values  
-* selected normalized change fields for fundamentals where a new value became available  
-* event flags for filings and other point-in-time updates
-
-For fundamentals, the package should not force artificial daily changes when no new report arrived. Instead, it should use:
-
-* the latest available point-in-time value  
-* change from the prior available value where relevant  
-* event flags for filings or newly available financial information
+* selected daily percentage price changes  
+* day-to-day changes in selected technical indicator values  
+* the latest filed fundamental period metadata  
+* filing and macro context  
+* stock-news-of-the-day selection and count
 
 
 6. **Daily package role mapping**
@@ -159,23 +140,22 @@ For fundamentals, the package should not force artificial daily changes when no 
 The Technical Analyst’s daily package should include:
 
 * relevant price data  
-* selected daily price-change fields  
-* technical indicator values  
-* day-to-day changes in those indicators
+* selected daily percentage price-change fields  
+* day-to-day changes in selected technical indicators
 
 The News Analyst’s daily package should include:
 
 * relevant price data  
 * one selected stock-specific news item for the date  
-* one summary of that selected news item  
 * daily news count for the stock  
 * selected market-wide or general news context
 
 The Fundamental Analyst’s daily package should include:
 
 * relevant price data  
-* normalized fundamental ratios  
-* changes in those values where a new observation became available  
+* selected normalized fundamental ratios  
+* the latest visible fundamental period end date  
+* the corresponding filing date used to gate visibility  
 * macroeconomic context  
 * filing flags and related event indicators
 
@@ -183,7 +163,6 @@ The Portfolio Manager does not receive the same screening package as the special
 
 * analyst outputs  
 * current portfolio state  
-* candidate state  
 * selected notes and summaries  
 * challenge and debate outputs where applicable
 
@@ -285,7 +264,6 @@ The following should be retrieved at runtime during deeper analysis:
 * filing-linked knowledge-base content where relevant  
 * prior notes and summaries  
 * current portfolio state  
-* candidate state  
 * role-specific deeper analysis history
 
 This hybrid design keeps screening stable and reproducible while allowing selective deeper analysis at runtime.
@@ -320,7 +298,6 @@ The Fundamental Analyst should access:
 The Portfolio Manager should access:
 
 * analyst outputs  
-* candidate state  
 * current portfolio state  
 * selected recent summaries or notes  
 * debate outputs where present  
@@ -352,7 +329,6 @@ These artifacts should include:
 
 * analyst stock notes  
 * weekly summaries  
-* candidate-state records  
 * portfolio decision records
 
 The system should use a latest-snapshot-plus-history logic:
@@ -370,7 +346,6 @@ In addition to the source-oriented and prepared package tables, the system shoul
 
 These should include, at minimum:
 
-* candidate state  
 * analyst notes  
 * weekly summaries  
 * portfolio state  
@@ -394,4 +369,4 @@ This is sufficient for the thesis artifact and avoids unnecessary security overe
 
 17. **Phase 4 summary**
 
-The data and tool layer should use yfinance, EDGAR, and FMP as ingestion sources, while Supabase serves as the actual runtime data source for the system during backtesting. The data model should distinguish between source-oriented tables and precomputed prepared package tables. The daily information packages should be generated in advance and stored in Supabase so that all configurations consume the same screening inputs. These packages should include daily nominal or percentage changes for prices and technical indicators, along with point-in-time change logic or event flags for fundamentals and filings. Clean and manipulated stock-news datasets should both be stored in Supabase, with manipulated rows linked back to their original source records. Deeper analysis should retrieve role-specific historical rows, notes, summaries, candidate state, portfolio state, and filing-linked knowledge-base content at runtime. The overall design should prioritize reproducibility, point-in-time correctness, and controlled role-based access.
+The data and tool layer should use yfinance, EDGAR, and FMP as ingestion sources, while Supabase serves as the actual runtime data source for the system during backtesting. The data model should distinguish between source-oriented tables and precomputed prepared package tables. The daily information packages should be generated in advance and stored in Supabase so that all configurations consume the same screening inputs. These packages should include daily percentage changes for prices and technical indicators, along with point-in-time filing-gated fundamental metadata, filing flags, inflation context, and stock-news-of-the-day selection. Clean and manipulated stock-news datasets should both be stored in Supabase, with manipulated rows linked back to their original source records. Deeper analysis should retrieve role-specific historical rows, notes, summaries, portfolio state, and filing-linked knowledge-base content at runtime. The overall design should prioritize reproducibility, point-in-time correctness, and controlled role-based access.

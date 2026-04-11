@@ -293,7 +293,10 @@ def build_fundamental_index(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
     for ticker, ticker_rows in grouped.items():
         grouped[ticker] = sorted(
             ticker_rows,
-            key=lambda row: row["period_end_date"],
+            key=lambda row: (
+                row.get("filing_date") or "",
+                row.get("period_end_date") or "",
+            ),
             reverse=True,
         )
     return grouped
@@ -307,6 +310,8 @@ def compute_fundamental_fields(
     package_date: date,
 ) -> Dict[str, Any]:
     result: Dict[str, Any] = {
+        "fundamental_period_end_date": None,
+        "fundamental_filing_date": None,
         "filing_flag": False,
         "filing_form": None,
         "inflation_rate": None,
@@ -335,6 +340,7 @@ def compute_fundamental_fields(
             result[field] = to_float(current_row.get(field))
 
         result["fundamental_period_end_date"] = current_row.get("period_end_date")
+        result["fundamental_filing_date"] = current_row.get("filing_date")
         prev_current_ratio = to_float(previous_row.get("current_ratio")) if previous_row else None
         prev_gross_margin = to_float(previous_row.get("gross_margin")) if previous_row else None
         prev_operating_margin = to_float(previous_row.get("operating_margin")) if previous_row else None
@@ -501,12 +507,12 @@ def main() -> None:
         table="fundamental_ratios",
         tickers=tickers,
         select_clause=(
-            "id,ticker,period_end_date,current_ratio,quick_ratio,gross_margin,operating_margin,net_margin,"
+            "id,ticker,period_end_date,filing_date,current_ratio,quick_ratio,gross_margin,operating_margin,net_margin,"
             "debt_to_assets_ratio,debt_to_equity,interest_coverage_ratio,asset_turnover,inventory_turnover,"
             "receivables_turnover,price_to_earnings,price_to_book,"
             "price_to_sales,price_to_free_cash_flow,enterprise_value_multiple,dividend_yield"
         ),
-        date_column="period_end_date",
+        date_column="filing_date",
         start_value=None,
         end_value=package_date.isoformat(),
     )

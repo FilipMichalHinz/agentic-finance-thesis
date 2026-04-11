@@ -134,10 +134,10 @@ The table is created by:
 
 - `supabase/migrations/20260410113000_add_fundamental_ratios.sql`
 
-It stores one row per reported period from the FMP `ratios` endpoint:
+It stores one row per reported period from the FMP `ratios` endpoint, enriched with filing timing from FMP income statements:
 
 - identity fields: `provider`, `ticker`, `source_period_key`
-- timing fields: `period_type`, `period_end_date`
+- timing fields: `period_type`, `period_end_date`, `filing_date`
 - period labels: `fiscal_year`, `calendar_year`
 - reported metadata: `reported_currency`
 - core ratio fields: `current_ratio`, `quick_ratio`, `gross_margin`, `operating_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `debt_to_assets_ratio`, `debt_to_equity`, `interest_coverage_ratio`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`, `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_free_cash_flow`, `enterprise_value_multiple`, `dividend_yield`
@@ -178,13 +178,17 @@ python scripts/ingest_fundamentals_fmp.py
 - `--api-key ...`
 
 ### What It Stores
-- period identity and timing: `period_type`, `period_end_date`
+- period identity and timing: `period_type`, `period_end_date`, `filing_date`
 - reported metadata: `reported_currency`
 - liquidity and leverage: `current_ratio`, `quick_ratio`, `debt_to_assets_ratio`, `debt_to_equity`, `interest_coverage_ratio`
 - profitability and efficiency: `gross_margin`, `operating_margin`, `net_margin`, `return_on_assets`, `return_on_equity`, `asset_turnover`, `inventory_turnover`, `receivables_turnover`
 - valuation: `price_to_earnings`, `price_to_book`, `price_to_sales`, `price_to_free_cash_flow`, `enterprise_value_multiple`, `dividend_yield`
 - stored numeric values are rounded to 2 decimal places
 - `raw_payload` containing the original FMP ratio row
+
+### Point-in-time note
+- The daily package builder should only surface a fundamental period after its `filing_date`.
+- `period_end_date` describes what period the metrics belong to, but `filing_date` is the gate for when that period becomes visible in backtests.
 
 ## FMP Technical Indicators Table
 

@@ -49,7 +49,6 @@ The portfolio manager should be the central synthesis node and the final decisio
 The analyst agents provide:
 
 * specialized assessments  
-* candidate nominations  
 * structured reasoning from their own perspective
 
 The portfolio manager is responsible for:
@@ -109,7 +108,6 @@ Supabase should store:
 * daily packages  
 * stock notes  
 * weekly summaries  
-* candidate status history  
 * portfolio history  
 * run logs  
 * evaluation records
@@ -151,19 +149,16 @@ This controlled access structure is important for both methodological clarity an
 
 The daily information package should serve as the broad screening layer across the DJIA 30\. It is not the full deep analysis. Its purpose is to help each analyst identify which stocks deserve further attention from that analyst’s perspective.
 
-The architecture should define three screening statuses:
+The architecture should define two screening statuses:
 
 * no issue  
-* monitor  
-* flag for deeper analysis
+* flag for deep analysis
 
 These should mean:
 
 1. No issue  
     The stock does not require further action from that analyst on that day.  
-2. Monitor  
-    The stock is noteworthy and may remain relevant for watchlist or candidate purposes, but it does not automatically enter deeper analysis on that day.  
-3. Flag for deeper analysis  
+2. Flag for deep analysis  
     The stock should be considered for inclusion in the shared deep-analysis set for that day.
 
 These statuses should be stored as structured screening outputs so that the screening logic is visible and comparable across configurations.
@@ -175,7 +170,6 @@ After screening, the system should create one shared deep-analysis set for the d
 The shared deep-analysis set should consist of:
 
 * all current holdings  
-* all active candidate-list names  
 * the union of newly flagged names from any analyst during the daily screening step
 
 For every flagged stock, the system should also store:
@@ -200,19 +194,7 @@ The initial report is already based on:
 * today’s daily package  
 * deeper retrieved data  
 * the agent’s own relevant prior notes where allowed  
-12. **Candidate logic**
-
-Each analyst may nominate up to three candidate stocks per day for portfolio consideration. These nominations are part of the analyst output, but they do not determine portfolio changes by themselves. The portfolio manager remains responsible for deciding whether those nominations affect the target portfolio.
-
-The candidate list should remain dynamic over time. Stocks may:
-
-* enter the candidate list  
-* remain on the candidate list  
-* leave the candidate list
-
-The architecture should therefore support candidate-status persistence in the database rather than relying only on same-day nominations.
-
-13. **Memory design**
+12. **Memory design**
 
 Persistent memory should be implemented through structured records stored in Supabase, not through an unrestricted shared memory space.
 
@@ -237,7 +219,7 @@ Each updated note should contain:
 
 This allows continuity without turning memory into an uncontrolled text archive.
 
-14. **Memory retrieval logic**
+13. **Memory retrieval logic**
 
 Memory retrieval should begin as structured database retrieval rather than embedding-based vector search.
 
@@ -258,13 +240,13 @@ By default:
 * analysts should not retrieve broad peer memory  
 * peer visibility should occur only through explicitly defined interaction stages, such as debate  
 * the portfolio manager may retrieve a broader set of current analyst outputs and selected recent summaries where useful  
-15. **Weekly summaries**
+14. **Weekly summaries**
 
 Every five trading days, each analyst should generate a structured weekly summary.
 
 These summaries should be stored in Supabase and may later be retrieved as part of the context for future daily decisions. Their purpose is to create continuity and broader context without replacing the daily evidence-driven analysis.
 
-16. **Debate architecture**
+15. **Debate architecture**
 
 Recurrent discussion should be implemented as a bounded peer-based debate process rather than as unrestricted conversation. Debate should happen only:
 
@@ -297,7 +279,7 @@ The original analyst then produces a revised final report that includes explicit
 
 This design keeps debate iterative and meaningful, while still bounded and auditable. It also keeps debate clearly distinct from challenger logic.
 
-17. **Challenger architecture**
+16. **Challenger architecture**
 
 The challenger mechanism should be implemented as a separate portfolio-manager challenge stage rather than as a hidden behavior inside the final decision node.
 
@@ -313,7 +295,7 @@ Only after that does the workflow proceed to the final PM-Decision node, where t
 
 This design preserves the logic of the challenger as a distinct resilience mechanism and makes the interaction visible in the logs.
 
-18. **Combined debate and challenger configuration**
+17. **Combined debate and challenger configuration**
 
 The architecture should also support the combined configuration where recurrent discussion and challenger are both enabled.
 
@@ -331,7 +313,7 @@ In that case, the order should be:
 
 This order is consistent across configurations and preserves a clean interpretation of the mechanisms. Debate improves the analyst reports first, and then the portfolio-manager challenger stage reviews those revised reports before the final decision.
 
-19. **Schema enforcement**
+18. **Schema enforcement**
 
 All major node outputs should be governed by strict schemas.
 
@@ -355,7 +337,7 @@ This is necessary for:
 * reproducibility  
 * execution logic  
 * later evaluation  
-20. **Configuration consistency**
+19. **Configuration consistency**
 
 All four configurations should share the same core architecture up to the point where their mechanisms differ.
 
@@ -371,7 +353,7 @@ The difference between configurations should come only from whether debate and c
 
 This is important for experimental comparability.
 
-21. **Baseline-first implementation logic**
+20. **Baseline-first implementation logic**
 
 The architecture should be implemented in layers. The first layer should be the baseline system without challenger and without debate. That baseline should work for both:
 
@@ -385,6 +367,6 @@ Only after the baseline is functioning should the architecture be extended with:
 
 This staged implementation approach reduces engineering risk and keeps the artifact defendable.
 
-22. **Phase 3 summary**
+21. **Phase 3 summary**
 
-The artifact architecture should use LangGraph-style workflow orchestration with local agent reasoning inside controlled nodes. The portfolio manager is the central synthesis and final decision node. The system uses one shared per-day workflow state, while persistent data and memory are stored in Supabase. Analysts first perform independent screening of the full DJIA daily package using the statuses no issue, monitor, and flag for deeper analysis. The system then builds one shared deep-analysis set consisting of holdings, active candidates, and the union of newly flagged names. Analysts perform deeper analysis on that same stock set and produce initial full reports. Debate, when enabled, is implemented as a bounded peer-review and revision process. Challenger, when enabled, is implemented as a separate PM-Challenge stage before the final portfolio-manager decision. All major node outputs must follow strict schemas. The baseline architecture is implemented first and then extended with the resilience mechanisms.
+The artifact architecture should use LangGraph-style workflow orchestration with local agent reasoning inside controlled nodes. The portfolio manager is the central synthesis and final decision node. The system uses one shared per-day workflow state, while persistent data and memory are stored in Supabase. Analysts first perform independent screening of the full DJIA daily package using the statuses no issue and flag for deep analysis. The system then builds one shared deep-analysis set consisting of current holdings and the union of newly flagged names. Analysts perform deeper analysis on that same stock set and produce initial full reports. Debate, when enabled, is implemented as a bounded peer-review and revision process. Challenger, when enabled, is implemented as a separate PM-Challenge stage before the final portfolio-manager decision. All major node outputs must follow strict schemas. The baseline architecture is implemented first and then extended with the resilience mechanisms.

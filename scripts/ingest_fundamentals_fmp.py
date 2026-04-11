@@ -4,6 +4,7 @@ import json
 import os
 import random
 import socket
+import ssl
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -14,6 +15,11 @@ from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
+
+try:
+    import certifi
+except ModuleNotFoundError:
+    certifi = None
 
 try:
     from src.ticker_universes import DOW_30_TICKERS
@@ -31,8 +37,6 @@ NUMERIC_FIELD_MAPPINGS = {
     "gross_margin": ["grossProfitMargin", "grossMargin"],
     "operating_margin": ["operatingProfitMargin", "operatingMargin"],
     "net_margin": ["netProfitMargin", "netMargin"],
-    "return_on_assets": ["returnOnAssets"],
-    "return_on_equity": ["returnOnEquity"],
     "debt_to_assets_ratio": ["debtToAssetsRatio", "debtRatio"],
     "debt_to_equity": ["debtToEquityRatio", "debtEquityRatio", "debtToEquity"],
     "interest_coverage_ratio": ["interestCoverageRatio", "interestCoverage"],
@@ -68,10 +72,11 @@ def parse_args():
 
 def fetch_json(url, api_key, sleep_seconds=0.2, timeout_seconds=30.0, max_retries=5, retry_backoff_seconds=2.0):
     req = Request(url, headers={"User-Agent": "agentic-finance-thesis/1.0"})
+    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
-            with urlopen(req, timeout=timeout_seconds) as resp:
+            with urlopen(req, timeout=timeout_seconds, context=ssl_context) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
             time.sleep(sleep_seconds)
             return payload
@@ -240,7 +245,39 @@ def fetch_ratios_rows(ticker, period, api_key, args):
     return payload or []
 
 
-def build_row(ticker, sample):
+def fetch_income_statement_rows(ticker, period, api_key, args):
+    url = build_url("income-statement", ticker, period, args.limit, api_key)
+    payload = fetch_json(
+        url,
+        api_key=api_key,
+        sleep_seconds=args.sleep_seconds,
+        timeout_seconds=args.timeout_seconds,
+        max_retries=args.max_retries,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+    )
+    if isinstance(payload, dict):
+        return [payload]
+    return payload or []
+
+
+def build_statement_timing_index(statement_rows):
+    index = {}
+    for sample in statement_rows:
+        period_end = parse_date(sample.get("date"))
+        if period_end is None:
+            continue
+        period_type, _ = canonical_period_label(sample.get("period"))
+        key = (period_end.isoformat(), period_type)
+        filing_date = parse_date(sample.get("filingDate"))
+        if filing_date is None:
+            continue
+        existing = index.get(key)
+        if existing is None or filing_date > existing:
+            index[key] = filing_date
+    return index
+
+
+def build_row(ticker, sample, filing_date=None):
     if sample is None:
         return None
 
@@ -270,6 +307,7 @@ def build_row(ticker, sample):
         "source_period_key": source_period_key,
         "period_type": period_type,
         "period_end_date": period_end.isoformat(),
+        "filing_date": filing_date.isoformat() if filing_date else None,
         "reported_currency": sample.get("reportedCurrency"),
         "fiscal_year": fiscal_year,
         "calendar_year": calendar_year,
@@ -320,8 +358,15 @@ def main():
             bundle_rows = []
             for period in periods:
                 ratios_rows = fetch_ratios_rows(ticker, period, args.api_key, args)
+                income_statement_rows = fetch_income_statement_rows(ticker, period, args.api_key, args)
+                filing_dates_by_period = build_statement_timing_index(income_statement_rows)
                 for sample in ratios_rows:
-                    row = build_row(ticker, sample)
+                    period_end = parse_date(sample.get("date"))
+                    period_type, _ = canonical_period_label(sample.get("period"))
+                    filing_date = None
+                    if period_end is not None:
+                        filing_date = filing_dates_by_period.get((period_end.isoformat(), period_type))
+                    row = build_row(ticker, sample, filing_date=filing_date)
                     if row is not None:
                         bundle_rows.append(row)
         except FmpAccessError as e:
