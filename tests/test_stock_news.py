@@ -2,6 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from src.integrations import general_news
 from src.integrations import stock_news
 
 
@@ -140,6 +141,34 @@ class RetrieveStockNewsTests(unittest.TestCase):
         policy = stock_news.resolve_stock_news_disinformation_policy()
 
         self.assertEqual("append", policy)
+
+
+class GeneralNewsTests(unittest.TestCase):
+    def test_general_news_returns_formatted_rows_for_day(self) -> None:
+        general_rows = [
+            {
+                "title": "Macro headline",
+                "content": "Macro content",
+                "publisher": "Reuters",
+                "site": "reuters.com",
+                "published_at": "2025-04-11T14:00:00+00:00",
+            }
+        ]
+
+        with patch.object(general_news, "_fetch_general_news_rows", return_value=general_rows):
+            rows = general_news.get_all_general_news_for_date("2025-04-11")
+
+        self.assertEqual(
+            [
+                {
+                    "title": "Macro headline",
+                    "content": "Macro content",
+                    "publisher": "Reuters",
+                    "site": "reuters.com",
+                }
+            ],
+            rows,
+        )
 
 
 if __name__ == "__main__":
