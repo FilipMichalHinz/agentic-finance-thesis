@@ -9,5 +9,8 @@ Sections:
 - [Phase 3: Architecture Design](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/03-phase-3-architecture-design.md)
 - [Phase 4: Data and Tool Layer](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/04-phase-4-data-and-tool-layer.md)
 - [Phase 4A: Column Mapping From Current Tables](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/05-phase-4a-column-mapping-from-current-tables.md)
+- [Phase 5: Agent Specifications](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/06-phase-5-agent-specifications.md)
+- [Phase 6: Schemas and Outputs](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/07-phase-6-schemas-and-outputs.md)
+- [Phase 7: Prompt and Control Logic](/Users/filiphinz/PortfolioApp16042025_20.55/agentic-finance-thesis/docs/artifact-spec/08-phase-7-prompt-and-control-logic.md)
 
 The content in these files comes from the updated thesis ideation document and is preserved as closely as possible, with the main change being the split into smaller docs.

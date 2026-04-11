@@ -1,21 +1,9 @@
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.integrations.google_genai import build_default_agent_llm
+from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
 from src.state import AgentState
 from src.tools.sec_rag_tool import search_filings
 from src.integrations.tool_runner import run_with_tools
-
-
-def _response_to_text(content) -> str:
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-        return "\n".join([p for p in parts if p]).strip()
-    if content is None:
-        return ""
-    return str(content)
 
 
 def get_fundamentals(ticker: str):
@@ -68,7 +56,7 @@ def fundamental_analyst_node(state: AgentState):
         ),
     ]
     response = run_with_tools(llm, messages, tools=[search_filings], max_iterations=5)
-    response_text = _response_to_text(response.content)
+    response_text = response_content_to_text(response.content)
     
     return {
         "fundamental_analysis": response_text,

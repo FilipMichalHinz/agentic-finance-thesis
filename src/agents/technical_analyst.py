@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.integrations.google_genai import build_default_agent_llm
+from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
 from src.state import AgentState
 
 
@@ -113,8 +113,9 @@ def technical_analyst_node(state: AgentState):
     ]
     
     response = llm.invoke(messages)
+    response_text = response_content_to_text(response.content)
     
     return {
         "technical_signals": data,
-        "technical_analysis": response.content
+        "technical_analysis": response_text
     }

@@ -1,6 +1,6 @@
 import yfinance as yf
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.integrations.google_genai import build_default_agent_llm
+from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
 from src.state import AgentState
 
 
@@ -53,7 +53,7 @@ def sentiment_analyst_node(state: AgentState):
     
     # 3. Simple Parsing (We assume the model follows instructions)
     # In a real app, we would use regex or structured output to extract the float safely.
-    content = response.content
+    content = response_content_to_text(response.content)
     
     return {
         "sentiment_analysis": content,

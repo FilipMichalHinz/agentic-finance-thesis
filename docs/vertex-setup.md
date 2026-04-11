@@ -19,7 +19,7 @@ Add these values to `.env`:
 ```dotenv
 GOOGLE_GENAI_USE_VERTEXAI=true
 GOOGLE_CLOUD_PROJECT=agentic-ai-finance
-GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLOUD_LOCATION=global
 ```
 
 Do not put shell commands in `.env`.
@@ -84,7 +84,7 @@ Expected success signals:
 
 - `Backend: Vertex AI`
 - `Using Application Default Credentials`
-- `Generation succeeded with gemini-2.5-flash`
+- `Generation succeeded with gemini-3-pro-preview`
 - `Embeddings succeeded with gemini-embedding-001`
 
 The line below is not a failure by itself:
@@ -133,7 +133,7 @@ GoogleGenAISettings(
     vertexai=True,
     api_key=None,
     project='agentic-ai-finance',
-    location='us-central1',
+    location='global',
 )
 ```
 
@@ -183,11 +183,11 @@ gcloud auth application-default login
 
 ## Current Default Models
 
-- Agent model: `gemini-2.5-flash`
+- Agent model: `gemini-3-pro-preview`
 - Embedding model: `gemini-embedding-001`
 
 The agent model can be overridden with:
 
 ```dotenv
-GOOGLE_LLM_MODEL=gemini-2.5-flash
+GOOGLE_LLM_MODEL=gemini-3-pro-preview
 ```

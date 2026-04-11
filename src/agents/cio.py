@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.integrations.google_genai import build_default_agent_llm
+from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
 from src.state import AgentState  # Note: Absolute import assuming run from root
 
 # Initialize the "Brain" (Gemini 3.0 Pro)
@@ -79,7 +79,7 @@ def cio_agent_node(state: AgentState):
     
     # 6. Parse the Output (Simple Logic for now)
     # In a full build, we would use LangChain's JsonOutputParser
-    content = response.content
+    content = response_content_to_text(response.content)
     
     # Return the updates to the state
     return {

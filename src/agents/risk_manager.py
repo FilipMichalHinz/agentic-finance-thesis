@@ -1,5 +1,5 @@
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.integrations.google_genai import build_default_agent_llm
+from src.integrations.google_genai import build_default_agent_llm, response_content_to_text
 from src.state import AgentState
 
 # Initialize the "Reasoning Model" (Gemini 3.0 Pro)
@@ -59,7 +59,7 @@ def risk_manager_node(state: AgentState):
     
     # 5. Parse the "Thought Process"
     # (Simple string parsing for this phase - we will upgrade this to Pydantic later)
-    content = response.content
+    content = response_content_to_text(response.content)
     
     # Fallback logic for the prototype
     approved = "true" in content.lower() and "risk_score" in content.lower()

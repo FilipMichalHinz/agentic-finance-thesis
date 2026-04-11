@@ -10,7 +10,8 @@ from src.integrations.alpaca_client import AlpacaPaperBroker
 
 # --- 1. SETUP ENVIRONMENT ---
 # Load environment variables (API Keys) from .env file
-load_dotenv()
+# Prefer repo-local settings over any unrelated Google env vars already in the shell.
+load_dotenv(override=True)
 try:
     resolve_google_genai_settings()
 except RuntimeError as exc:

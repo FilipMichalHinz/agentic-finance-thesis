@@ -21,7 +21,8 @@ except ModuleNotFoundError:
         resolve_google_genai_settings,
     )
 
-load_dotenv()
+# Prefer repo-local settings over any unrelated Google env vars already in the shell.
+load_dotenv(override=True)
 
 try:
     settings = resolve_google_genai_settings()

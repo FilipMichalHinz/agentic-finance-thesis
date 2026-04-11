@@ -29,7 +29,7 @@ class GoogleGenAIConfigTests(unittest.TestCase):
         self.assertTrue(settings.vertexai)
         self.assertEqual("vertex-project", settings.project)
         self.assertIsNone(settings.api_key)
-        self.assertEqual("us-central1", settings.location)
+        self.assertEqual("global", settings.location)
 
     def test_explicit_false_vertex_flag_keeps_developer_backend(self) -> None:
         with patch.dict(

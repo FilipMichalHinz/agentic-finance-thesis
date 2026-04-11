@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 
-DEFAULT_VERTEX_LOCATION = "us-central1"
-DEFAULT_AGENT_MODEL = "gemini-2.5-flash"
+DEFAULT_VERTEX_LOCATION = "global"
+DEFAULT_AGENT_MODEL = "gemini-3-pro-preview"
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,20 @@ def build_genai_client(timeout_seconds: int = 300):
     else:
         params["api_key"] = settings.api_key
     return genai.Client(**params)
+
+
+def response_content_to_text(content) -> str:
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text", "")
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    if content is None:
+        return ""
+    return str(content)
 
 
 def _looks_like_single_input_embedding_error(exc: Exception) -> bool:
