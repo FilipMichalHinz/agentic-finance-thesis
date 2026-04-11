@@ -2,7 +2,8 @@ import os
 from typing import List, Dict, Optional
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
+
+from src.integrations.supabase_client import get_supabase_client
 
 _MODEL = None
 _GEMINI_CLIENT = None
@@ -26,15 +27,6 @@ def _get_gemini_client(timeout_seconds: int):
         from google import genai
         _GEMINI_CLIENT = genai.Client(api_key=google_key, http_options={"timeout": int(timeout_seconds * 1000)})
     return _GEMINI_CLIENT
-
-
-def _get_supabase_client() -> Client:
-    load_dotenv()
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    if not supabase_url or not supabase_key:
-        raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
-    return create_client(supabase_url, supabase_key)
 
 
 def retrieve_filings(
@@ -70,7 +62,7 @@ def retrieve_filings(
             show_progress_bar=False,
         )[0].tolist()
 
-    supabase = _get_supabase_client()
+    supabase = get_supabase_client()
     res = supabase.rpc(
         "search_knowledge_base",
         {
